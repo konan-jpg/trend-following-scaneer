@@ -1,24 +1,24 @@
 universe:
-  min_mktcap_krw: 200000000000   # 2,000억
-  min_close: 10000               # 주가 1만원 이상
-  min_adv20_value: 10000000000   # 100억 (안전장치)
-  top_n_stocks: 1000             # 시총 상위 1000
-  chunk_size: 500                # 500개씩 2번
+  min_mktcap_krw: 100000000000   # 1,000억 (완화) ← 변경
+  min_close: 5000                # 주가 5천원 이상 (완화) ← 변경
+  min_adv20_value: 5000000000    # 50억 (완화) ← 변경
+  top_n_stocks: 1000
+  chunk_size: 500
 
 bollinger:
   length: 60
   stdev: 2.0
   bandwidth_lookback: 120
-  squeeze_percentile_max: 30
-  expansion_percentile_min: 80
+  squeeze_percentile_max: 40      # 30→40 (완화) ← 변경
+  expansion_percentile_min: 70    # 80→70 (완화) ← 변경
 
 volume:
-  climax_mult: 5.0
-  vol_confirm_mult: 1.5
+  climax_mult: 4.0                # 5.0→4.0 (완화) ← 변경
+  vol_confirm_mult: 1.3           # 1.5→1.3 (완화) ← 변경
 
 trend:
   adx_len: 14
-  adx_min: 20
+  adx_min: 18                     # 20→18 (완화) ← 변경
   ma_periods: [20, 50, 200]
 
 risk:
