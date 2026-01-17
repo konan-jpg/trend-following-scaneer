@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# 청크 임시 파일
+data/partial/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
