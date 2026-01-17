@@ -3,16 +3,13 @@ import pandas as pd
 import glob
 import os
 from datetime import datetime
+import plotly.graph_objects as go
 
 st.set_page_config(layout="wide", page_title="추세추종 스캐너")
 
 @st.cache_data(ttl=300)
 def load_data():
-    """
-    data/ 폴더 내의 최신 결과 파일을 로드합니다.
-    만약 합쳐진 파일이 없으면 data/partial/ 내의 chunk 파일들을 읽어 합칩니다.
-    """
-    # 1순위: 이미 합쳐진 최종 파일 찾기
+    """데이터 로드"""
     merged_files = glob.glob("data/scanner_output*.csv")
     merged_files = [f for f in merged_files if 'chunk' not in f]
     
@@ -30,7 +27,6 @@ def load_data():
         df = pd.read_csv(latest_file)
         return df, os.path.basename(latest_file)
 
-    # 2순위: data/partial/ 내의 chunk 파일 찾기
     chunk_files = glob.glob("data/partial/scanner_output*chunk*.csv")
     
     if chunk_files:
@@ -40,7 +36,7 @@ def load_data():
                 sub_df = pd.read_csv(f)
                 df_list.append(sub_df)
             except Exception as e:
-                st.warning(f"파일 읽기 실패: {f} - {e}")
+                st.warning(f"파일 읽기 실패: {f}")
                 continue
         
         if df_list:
@@ -48,111 +44,199 @@ def load_data():
             if 'code' in final_df.columns:
                 final_df.drop_duplicates(subset=['code'], keep='first', inplace=True)
             
-            st.info(f"📦 Partial 파일 {len(df_list)}개를 합쳐서 표시합니다 (총 {len(final_df)}개 종목)")
+            st.info(f"📦 Partial 파일 {len(df_list)}개를 합쳐서 표시합니다")
             return final_df, f"Merged from {len(df_list)} chunks"
 
     return None, None
 
-# 메인 앱 로직
+# 메인 앱
 st.title("🔍 추세추종 스캐너 (일봉/장마감)")
 
 df, filename = load_data()
 
 if df is None:
     st.error("❌ 결과 파일이 없습니다.")
-    st.info("💡 GitHub Actions 실행 후 data/ 또는 data/partial/에 파일이 있어야 합니다.")
     st.stop()
 
 st.success(f"✅ 데이터 로드 완료: {filename} (총 {len(df)}개 종목)")
 
-# 점수 기준 내림차순 정렬
+# 점수 정렬
 if 'total_score' in df.columns:
     df = df.sort_values(by='total_score', ascending=False).reset_index(drop=True)
 else:
-    st.error("total_score 컬럼이 없습니다. 데이터 형식을 확인해주세요.")
+    st.error("total_score 컬럼이 없습니다.")
     st.stop()
 
-# 필터링 및 테이블 표시
+# 사이드바 필터
+st.sidebar.title("🎛️ 필터 설정")
 min_score = st.sidebar.slider("최소 점수", 0, 100, 50)
+
 filtered_df = df[df['total_score'] >= min_score].copy()
 
+# 표 표시 (rank 컬럼 제외, 인덱스도 숨김)
 st.subheader(f"🏆 상위 랭킹 종목 ({len(filtered_df)}개)")
 
-# 표시할 컬럼 선택 (존재하는 컬럼만)
-display_cols = ['rank', 'code', 'name', 'close', 'total_score', 'trend_score', 'vol_score']
+display_cols = ['code', 'name', 'close', 'total_score', 'trend_score', 'vol_score']
 display_cols = [col for col in display_cols if col in filtered_df.columns]
 
-st.dataframe(
-    filtered_df[display_cols],
+# 표시용 데이터프레임 생성 (순위 추가)
+display_df = filtered_df[display_cols].copy()
+display_df.insert(0, '순위', range(1, len(display_df) + 1))
+
+# 컬럼명 한글화
+column_config = {
+    '순위': st.column_config.NumberColumn('순위', width='small'),
+    'code': st.column_config.TextColumn('종목코드', width='small'),
+    'name': st.column_config.TextColumn('종목명', width='medium'),
+    'close': st.column_config.NumberColumn('현재가', format='%d원'),
+    'total_score': st.column_config.NumberColumn('총점', format='%d점'),
+    'trend_score': st.column_config.NumberColumn('추세', format='%d점'),
+    'vol_score': st.column_config.NumberColumn('거래량', format='%d점'),
+}
+
+# 클릭 가능한 테이블
+event = st.dataframe(
+    display_df,
     use_container_width=True,
-    height=400
+    height=400,
+    column_config=column_config,
+    hide_index=True,
+    on_select="rerun",
+    selection_mode="single-row"
 )
 
-# 차트 상세 보기 (종목 선택)
-if len(filtered_df) > 0:
-    st.subheader("📈 종목 상세 분석")
+# 선택된 행 처리
+if event.selection and len(event.selection.rows) > 0:
+    selected_idx = event.selection.rows[0]
+    selected_code = display_df.iloc[selected_idx]['code']
     
-    # 종목 코드를 직접 key로 사용하도록 수정
-    stock_dict = {f"{row['name']} ({row['code']})": row['code'] 
-                  for _, row in filtered_df.iterrows()}
+    # 원본 데이터에서 종목 찾기
+    matching = df[df['code'].astype(str) == str(selected_code)]
     
-    selected_display = st.selectbox("종목 선택", list(stock_dict.keys()))
-    
-    if selected_display:
-        selected_code = stock_dict[selected_display]
+    if len(matching) > 0:
+        row = matching.iloc[0]
         
-        # 안전하게 종목 찾기
+        st.markdown("---")
+        st.subheader(f"📊 {row['name']} ({row['code']}) 상세 분석")
+        
+        # 메트릭 표시
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("현재가", f"{row['close']:,.0f}원")
+        with col2:
+            st.metric("총점", f"{row['total_score']:.0f}점")
+        with col3:
+            st.metric("추세 점수", f"{row['trend_score']:.0f}점")
+        with col4:
+            if 'setup' in row and pd.notna(row['setup']):
+                st.metric("셋업", row['setup'])
+        
+        # 상세 정보
+        col_left, col_right = st.columns(2)
+        
+        with col_left:
+            st.markdown("#### 📈 기술적 지표")
+            if 'ma20' in row and pd.notna(row['ma20']):
+                st.write(f"**20일 이평선**: {row['ma20']:,.0f}원")
+            if 'ma60' in row and pd.notna(row['ma60']):
+                st.write(f"**60일 이평선**: {row['ma60']:,.0f}원")
+            if 'adx' in row and pd.notna(row['adx']):
+                st.write(f"**ADX**: {row['adx']:.1f}")
+            if 'bbw_pct' in row and pd.notna(row['bbw_pct']):
+                st.write(f"**밴드폭 백분위**: {row['bbw_pct']:.1f}%")
+        
+        with col_right:
+            st.markdown("#### 🎯 리스크 관리")
+            if 'stop' in row and pd.notna(row['stop']):
+                st.write(f"**손절가**: {row['stop']:,.0f}원")
+            if 'risk_pct' in row and pd.notna(row['risk_pct']):
+                st.write(f"**리스크**: {row['risk_pct']:.1f}%")
+            if 'liq_score' in row and pd.notna(row['liq_score']):
+                st.write(f"**유동성 점수**: {row['liq_score']:.0f}점")
+            if 'trigger_score' in row and pd.notna(row['trigger_score']):
+                st.write(f"**트리거 점수**: {row['trigger_score']:.0f}점")
+        
+        # 차트 표시 (FinanceDataReader로 최근 데이터 가져오기)
+        st.markdown("#### 📉 가격 차트 (최근 6개월)")
+        
         try:
-            matching = df[df['code'].astype(str) == str(selected_code)]
+            import FinanceDataReader as fdr
+            from datetime import timedelta
             
-            if len(matching) == 0:
-                st.error(f"❌ 종목 코드 '{selected_code}'를 데이터에서 찾을 수 없습니다.")
-                st.info("💡 데이터가 업데이트되었을 수 있습니다. 페이지를 새로고침해주세요.")
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=180)
+            
+            chart_df = fdr.DataReader(row['code'], start_date, end_date)
+            
+            if chart_df is not None and len(chart_df) > 0:
+                # 이동평균선 계산
+                chart_df['MA20'] = chart_df['Close'].rolling(20).mean()
+                chart_df['MA60'] = chart_df['Close'].rolling(60).mean()
+                
+                # Plotly 차트 생성
+                fig = go.Figure()
+                
+                # 캔들스틱
+                fig.add_trace(go.Candlestick(
+                    x=chart_df.index,
+                    open=chart_df['Open'],
+                    high=chart_df['High'],
+                    low=chart_df['Low'],
+                    close=chart_df['Close'],
+                    name='가격'
+                ))
+                
+                # 이동평균선
+                fig.add_trace(go.Scatter(
+                    x=chart_df.index,
+                    y=chart_df['MA20'],
+                    mode='lines',
+                    name='MA20',
+                    line=dict(color='orange', width=1)
+                ))
+                
+                fig.add_trace(go.Scatter(
+                    x=chart_df.index,
+                    y=chart_df['MA60'],
+                    mode='lines',
+                    name='MA60',
+                    line=dict(color='blue', width=1)
+                ))
+                
+                # 손절가 라인 추가
+                if 'stop' in row and pd.notna(row['stop']):
+                    fig.add_hline(
+                        y=row['stop'],
+                        line_dash="dash",
+                        line_color="red",
+                        annotation_text=f"손절: {row['stop']:,.0f}원"
+                    )
+                
+                # 레이아웃 설정
+                fig.update_layout(
+                    title=f"{row['name']} ({row['code']})",
+                    yaxis_title="가격 (원)",
+                    xaxis_title="날짜",
+                    height=500,
+                    xaxis_rangeslider_visible=False,
+                    hovermode='x unified'
+                )
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
             else:
-                row = matching.iloc[0]
-                
-                # 메트릭 표시
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    close_val = row.get('close', 0)
-                    st.metric("현재가", f"{close_val:,.0f}원" if close_val else "N/A")
-                
-                with col2:
-                    total_val = row.get('total_score', 0)
-                    st.metric("총점", f"{total_val:.0f}점" if total_val else "N/A")
-                
-                with col3:
-                    trend_val = row.get('trend_score', 0)
-                    st.metric("추세 점수", f"{trend_val:.0f}점" if trend_val else "N/A")
-                
-                # 추가 정보 표시
-                st.markdown("### 📊 종목 상세 정보")
-                info_cols = st.columns(2)
-                
-                with info_cols[0]:
-                    if 'vol_score' in row and pd.notna(row['vol_score']):
-                        st.write(f"**거래량 점수**: {row['vol_score']:.0f}점")
-                    if 'rank' in row and pd.notna(row['rank']):
-                        st.write(f"**순위**: {row['rank']}위")
-                    if 'market' in row and pd.notna(row['market']):
-                        st.write(f"**시장**: {row['market']}")
-                
-                with info_cols[1]:
-                    if 'ma20' in row and pd.notna(row['ma20']):
-                        st.write(f"**20일 이평선**: {row['ma20']:,.0f}원")
-                    if 'ma60' in row and pd.notna(row['ma60']):
-                        st.write(f"**60일 이평선**: {row['ma60']:,.0f}원")
-                    if 'scan_date' in row and pd.notna(row['scan_date']):
-                        st.write(f"**스캔 일시**: {row['scan_date']}")
-                
-                st.info(f"💡 선택된 종목: **{row['name']}** ({row['code']})")
+                st.warning("차트 데이터를 불러올 수 없습니다.")
                 
         except Exception as e:
-            st.error(f"❌ 종목 정보를 불러오는 중 에러가 발생했습니다: {e}")
-            st.info("💡 Streamlit Cloud 관리 화면에서 로그를 확인해주세요.")
+            st.error(f"차트 생성 중 에러: {e}")
+            st.info("FinanceDataReader 설치가 필요할 수 있습니다.")
+    
+    else:
+        st.error(f"종목 {selected_code}를 찾을 수 없습니다.")
+
 else:
-    st.warning("⚠️ 조건에 맞는 종목이 없습니다. 필터를 조정해주세요.")
+    st.info("👆 위 표에서 종목을 클릭하면 상세 차트와 분석 정보가 표시됩니다.")
 
 # 푸터
 st.markdown("---")
