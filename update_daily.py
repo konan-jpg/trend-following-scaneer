@@ -4,8 +4,6 @@ import yaml
 import pandas as pd
 import FinanceDataReader as fdr
 from datetime import datetime, timedelta
-from scanner_core import calculate_signals, score_stock
-from news_analyzer import analyze_stock_news
 
 def load_config():
     with open("config.yaml", "r", encoding="utf-8") as f:
@@ -29,6 +27,44 @@ def get_stock_list(cfg):
             return pd.read_csv("data/krx_backup.csv")
         except Exception:
             return pd.DataFrame()
+
+def simple_score_stock(df, code, name):
+    """
+    매우 단순한 점수 계산 (테스트용)
+    - MA20 > MA60이면 추세 점수 +50
+    - 최근 거래량이 평균보다 많으면 거래량 점수 +30
+    - 총점 = 추세 + 거래량
+    """
+    try:
+        close = df['Close'].iloc[-1]
+        
+        # 이동평균
+        ma20 = df['Close'].rolling(20).mean().iloc[-1]
+        ma60 = df['Close'].rolling(60).mean().iloc[-1]
+        
+        # 거래량
+        vol_ma20 = df['Volume'].rolling(20).mean().iloc[-1]
+        recent_vol = df['Volume'].tail(5).mean()
+        
+        # 점수 계산
+        trend_score = 50 if ma20 > ma60 else 20
+        vol_score = 30 if recent_vol > vol_ma20 * 1.2 else 10
+        total_score = trend_score + vol_score
+        
+        return {
+            "close": round(close, 0),
+            "ma20": round(ma20, 0),
+            "ma60": round(ma60, 0),
+            "trend_score": trend_score,
+            "vol_score": vol_score,
+            "total_score": total_score,
+            "momentum_score": 0,
+            "news_score": 0,
+            "news_summary": ""
+        }
+    except Exception as e:
+        print(f"⚠️ {name} ({code}) 점수 계산 실패: {e}")
+        return None
 
 def main():
     cfg = load_config()
@@ -60,7 +96,6 @@ def main():
         code = getattr(row, "Code", None)
         name = getattr(row, "Name", None)
         market = getattr(row, "Market", "")
-        mktcap = getattr(row, "Marcap", None)
         
         if not code or not name:
             continue
@@ -77,28 +112,30 @@ def main():
             if float(df["Volume"].tail(5).sum()) == 0:
                 continue
             
-            if float(df["Close"].iloc[-1]) < cfg["universe"]["min_close"]:
+            close_price = float(df["Close"].iloc[-1])
+            if close_price < cfg["universe"]["min_close"]:
                 continue
             
-            sig = calculate_signals(df, cfg)
-            scored = score_stock(df, sig, cfg, mktcap=mktcap)
+            # 단순 점수 계산 (scanner_core 대신)
+            scored = simple_score_stock(df, code, name)
             
             if scored is None:
                 continue
             
-            news = analyze_stock_news(name, cfg)
+            # 최소 점수 필터 (40점 이상만)
+            if scored['total_score'] < 40:
+                continue
             
             results.append({
                 "code": code,
                 "name": name,
                 "market": market,
                 **scored,
-                **news,
                 "scan_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "chunk": chunk,
             })
             
-            print(f"✅ {name} ({code}): {scored.get('total_score', 0)}점")
+            print(f"✅ {name} ({code}): {scored['total_score']}점")
             
             time.sleep(0.1)
             
