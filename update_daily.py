@@ -62,7 +62,7 @@ def main():
     
     results = []
     end = datetime.now()
-    start = end - timedelta(days=260)
+    start = end - timedelta(days=400)  # 260 → 400으로 변경 (거래일 기준 약 280일)
     
     scanned_count = 0
     error_count = 0
@@ -99,7 +99,7 @@ def main():
             if len(df) < 200:
                 skip_reasons["short_history"] += 1
                 if scanned_count <= 10:
-                    print(f"⏭️ {name} ({code}): 히스토리 부족 ({len(df)}일)")
+                    print(f"⏭️ {name} ({code}): 히스토리 부족 ({len(df)}일, 필요: 200일)")
                 continue
             
             if float(df["Volume"].tail(5).sum()) == 0:
