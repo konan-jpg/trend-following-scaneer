@@ -48,47 +48,54 @@ def load_data():
 
     return None, None
 
-def explain_setup(setup_type):
-    """셋업 타입 설명"""
-    explanations = {
+def get_setup_explanations():
+    """셋업 타입 전체 설명"""
+    return {
         'A': "볼린저밴드(60,2) 상단 돌파 + 밴드폭 수축 구간 + 거래량 확인 + ADX 강세",
         'B': "거래량 급등(평균 5배) 후 고점 돌파 + 거래량 재확인",
-        '-': "기본 추세 및 유동성 기준만 충족"
+        'C': "20일 이평선 돌파 + 거래량 증가 + ADX 상승 추세",
+        '-': "기본 추세 및 유동성 기준만 충족 (특정 셋업 미해당)"
     }
-    return explanations.get(setup_type, "알 수 없음")
 
-def explain_scores(row):
-    """점수 구성 설명"""
-    explanations = []
-    
-    # 추세 점수 설명
-    trend_details = []
-    if row.get('close', 0) > row.get('ma20', 0):
-        trend_details.append("현재가 > MA20 (+10)")
-    if row.get('close', 0) > row.get('ma60', 0):
-        trend_details.append("현재가 > MA60 (+10)")
-    
-    adx = row.get('adx', 0)
-    if adx >= 40:
-        trend_details.append(f"ADX {adx:.0f} 강세 (+15)")
-    elif adx >= 30:
-        trend_details.append(f"ADX {adx:.0f} 중강 (+12)")
-    elif adx >= 25:
-        trend_details.append(f"ADX {adx:.0f} 중립 (+8)")
-    elif adx >= 20:
-        trend_details.append(f"ADX {adx:.0f} 약세 (+5)")
-    
-    explanations.append(("추세 점수", row.get('trend_score', 0), ", ".join(trend_details)))
-    
-    # 트리거 점수
-    trigger_detail = f"Setup {row.get('setup', '-')} 발동"
-    explanations.append(("트리거 점수", row.get('trigger_score', 0), trigger_detail))
-    
-    # 유동성 점수
-    liq_detail = "거래대금 및 회전율 기준"
-    explanations.append(("유동성 점수", row.get('liq_score', 0), liq_detail))
-    
-    return explanations
+def explain_setup(setup_type):
+    """셋업 타입 설명"""
+    return get_setup_explanations().get(setup_type, "알 수 없음")
+
+def get_score_explanations():
+    """점수 구성요소 설명"""
+    return {
+        'trend_score': {
+            'name': '추세 점수',
+            'description': '주가의 추세 강도를 측정합니다.',
+            'components': [
+                '현재가 > 20일 이평선: +10점',
+                '현재가 > 60일 이평선: +10점',
+                'ADX 40 이상 (강세): +15점',
+                'ADX 30~39 (중강): +12점',
+                'ADX 25~29 (중립): +8점',
+                'ADX 20~24 (약세): +5점'
+            ]
+        },
+        'trigger_score': {
+            'name': '트리거 점수',
+            'description': '매수 신호 발생 조건 충족도를 측정합니다.',
+            'components': [
+                'Setup A 발동: +25점',
+                'Setup B 발동: +25점',
+                'Setup C 발동: +20점',
+                '셋업 미해당: +0점'
+            ]
+        },
+        'liq_score': {
+            'name': '유동성 점수',
+            'description': '거래 활성도와 유동성을 측정합니다.',
+            'components': [
+                '일평균 거래대금 기준',
+                '회전율 기준',
+                '거래량 증가율 반영'
+            ]
+        }
+    }
 
 # 메인 앱
 st.title("🔍 추세추종 스캐너 (일봉/장마감)")
@@ -116,8 +123,8 @@ filtered_df = df[df['total_score'] >= min_score].copy()
 # 표 표시
 st.subheader(f"🏆 상위 랭킹 종목 ({len(filtered_df)}개)")
 
-# 표시할 컬럼에 유동성 점수 추가
-display_cols = ['code', 'name', 'close', 'total_score', 'trend_score', 'trigger_score', 'liq_score']
+# 표시할 컬럼에 셋업 추가
+display_cols = ['code', 'name', 'close', 'total_score', 'setup', 'trend_score', 'trigger_score', 'liq_score']
 display_cols = [col for col in display_cols if col in filtered_df.columns]
 
 display_df = filtered_df[display_cols].copy()
@@ -130,6 +137,7 @@ rename_map = {
     'name': '종목명',
     'close': '현재가',
     'total_score': '총점',
+    'setup': '셋업',
     'trend_score': '추세',
     'trigger_score': '트리거',
     'liq_score': '유동성'
@@ -144,20 +152,20 @@ st.dataframe(
     hide_index=True
 )
 
-# 종목 선택 (selectbox 사용)
+# 종목 선택 (라디오 버튼 - 테이블 클릭 대체)
 if len(filtered_df) > 0:
-    stock_options = [f"{row['name']} ({row['code']})" for _, row in filtered_df.iterrows()]
-    selected_option = st.selectbox(
-        "📌 상세 분석할 종목 선택",
-        options=["선택하세요..."] + stock_options,
-        index=0
+    stock_list = [f"{i+1}. {row['name']} ({row['code']})" for i, row in filtered_df.head(20).iterrows()]
+    
+    st.markdown("#### 📌 종목 선택 (클릭하여 상세 분석)")
+    selected_stock = st.radio(
+        "종목 선택",
+        options=stock_list,
+        label_visibility="collapsed",
+        horizontal=False
     )
     
-    if selected_option != "선택하세요...":
-        # 선택된 종목에서 코드 추출
-        selected_code = selected_option.split("(")[-1].replace(")", "").strip()
-    else:
-        selected_code = None
+    # 선택된 종목에서 코드 추출
+    selected_code = selected_stock.split("(")[-1].replace(")", "").strip()
 else:
     selected_code = None
 
@@ -184,17 +192,69 @@ if selected_code:
             if 'risk_pct' in row and pd.notna(row['risk_pct']):
                 st.metric("리스크", f"{row['risk_pct']:.1f}%")
         
-        # 셋업 설명
-        st.info(f"**Setup {setup_type}**: {explain_setup(setup_type)}")
+        # 셋업 설명 (클릭/터치로 펼침)
+        with st.expander(f"ℹ️ 셋업 설명 보기 (현재: Setup {setup_type})", expanded=False):
+            st.markdown("**📋 셋업 종류 및 설명**")
+            setup_explanations = get_setup_explanations()
+            for stype, desc in setup_explanations.items():
+                if stype == setup_type:
+                    st.success(f"**▶ Setup {stype}** (현재): {desc}")
+                else:
+                    st.write(f"**Setup {stype}**: {desc}")
         
         # 점수 상세 설명
+        st.markdown("---")
         col_left, col_right = st.columns(2)
         
         with col_left:
             st.markdown("#### 📈 점수 구성 상세")
-            score_explanations = explain_scores(row)
-            for name, score, detail in score_explanations:
-                st.write(f"**{name}** ({score:.0f}점): {detail}")
+            
+            score_info = get_score_explanations()
+            
+            # 추세 점수
+            trend_score = row.get('trend_score', 0)
+            with st.expander(f"🔹 추세 점수: {trend_score:.0f}점 (터치하여 설명 보기)", expanded=False):
+                st.markdown(f"**{score_info['trend_score']['description']}**")
+                st.markdown("**구성 요소:**")
+                for comp in score_info['trend_score']['components']:
+                    st.write(f"• {comp}")
+                st.markdown("---")
+                st.markdown("**현재 종목 분석:**")
+                if row.get('close', 0) > row.get('ma20', 0):
+                    st.write("✅ 현재가 > MA20 (+10)")
+                if row.get('close', 0) > row.get('ma60', 0):
+                    st.write("✅ 현재가 > MA60 (+10)")
+                adx = row.get('adx', 0)
+                if adx >= 40:
+                    st.write(f"✅ ADX {adx:.0f} 강세 (+15)")
+                elif adx >= 30:
+                    st.write(f"✅ ADX {adx:.0f} 중강 (+12)")
+                elif adx >= 25:
+                    st.write(f"✅ ADX {adx:.0f} 중립 (+8)")
+                elif adx >= 20:
+                    st.write(f"✅ ADX {adx:.0f} 약세 (+5)")
+            
+            # 트리거 점수
+            trigger_score = row.get('trigger_score', 0)
+            with st.expander(f"🔹 트리거 점수: {trigger_score:.0f}점 (터치하여 설명 보기)", expanded=False):
+                st.markdown(f"**{score_info['trigger_score']['description']}**")
+                st.markdown("**구성 요소:**")
+                for comp in score_info['trigger_score']['components']:
+                    st.write(f"• {comp}")
+                st.markdown("---")
+                st.markdown("**현재 종목 분석:**")
+                st.write(f"✅ Setup {row.get('setup', '-')} 발동")
+            
+            # 유동성 점수
+            liq_score = row.get('liq_score', 0)
+            with st.expander(f"🔹 유동성 점수: {liq_score:.0f}점 (터치하여 설명 보기)", expanded=False):
+                st.markdown(f"**{score_info['liq_score']['description']}**")
+                st.markdown("**구성 요소:**")
+                for comp in score_info['liq_score']['components']:
+                    st.write(f"• {comp}")
+                st.markdown("---")
+                st.markdown("**의미:**")
+                st.write("유동성이 높을수록 매매가 용이하고, 슬리피지(체결 가격 차이)가 적습니다.")
         
         with col_right:
             st.markdown("#### 📊 기술적 지표")
@@ -210,6 +270,7 @@ if selected_code:
                 st.write(f"**손절가**: {row['stop']:,.0f}원")
         
         # 차트
+        st.markdown("---")
         st.markdown("#### 📉 가격 차트 (최근 6개월)")
         
         try:
@@ -250,7 +311,7 @@ if selected_code:
                     subplot_titles=(f"{row['name']} ({row['code']})", "거래량")
                 )
                 
-                # 캔들스틱
+                # 캔들스틱 색상: 상승=빨간색, 하락=파란색
                 fig.add_trace(
                     go.Candlestick(
                         x=chart_df.index,
@@ -258,7 +319,11 @@ if selected_code:
                         high=chart_df['High'],
                         low=chart_df['Low'],
                         close=chart_df['Close'],
-                        name='가격'
+                        name='가격',
+                        increasing_line_color='red',
+                        increasing_fillcolor='red',
+                        decreasing_line_color='blue',
+                        decreasing_fillcolor='blue'
                     ),
                     row=1, col=1
                 )
@@ -273,7 +338,7 @@ if selected_code:
                 fig.add_trace(
                     go.Scatter(x=chart_df.index, y=chart_df['MA60'],
                               mode='lines', name='MA60',
-                              line=dict(color='blue', width=1)),
+                              line=dict(color='purple', width=1)),
                     row=1, col=1
                 )
                 
@@ -281,7 +346,7 @@ if selected_code:
                 fig.add_trace(
                     go.Scatter(x=chart_df.index, y=chart_df['BB_Upper'],
                               mode='lines', name='BB 상단',
-                              line=dict(color='purple', width=1, dash='dot')),
+                              line=dict(color='gray', width=1, dash='dot')),
                     row=1, col=1
                 )
                 
@@ -305,7 +370,7 @@ if selected_code:
                             row=1, col=1
                         )
                 
-                # 거래량 바
+                # 거래량 바 색상: 상승=빨간색, 하락=파란색
                 colors = ['red' if chart_df.loc[i, 'Close'] >= chart_df.loc[i, 'Open'] 
                          else 'blue' for i in chart_df.index]
                 
@@ -336,7 +401,7 @@ if selected_code:
             st.error(f"차트 생성 중 에러: {e}")
 
 else:
-    st.info("👆 위 드롭다운에서 종목을 선택하면 상세 차트가 표시됩니다.")
+    st.info("👆 위에서 종목을 선택하면 상세 분석이 표시됩니다.")
 
 st.markdown("---")
 st.caption(f"업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | {filename}")
