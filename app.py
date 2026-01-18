@@ -189,7 +189,7 @@ def display_stock_report(row, sector_df=None, rs_3m=None, rs_6m=None):
         <div class="info-box"><div class="info-label">외인연속</div><div class="info-value">{int(foreign)}일</div></div>
         <div class="info-box"><div class="info-label">기관5일</div><div class="info-value">{inst_net/1e8:,.0f}억</div></div>
     </div>
-    """)
+    """, unsafe_allow_html=True)
     # setup explanation
     setup_type = row.get('setup', '-')
     with st.expander(f"ℹ️ 셋업 설명 (현재: Setup {setup_type})", expanded=False):
@@ -421,14 +421,14 @@ def display_stock_report(row, sector_df=None, rs_3m=None, rs_6m=None):
 # Main App UI
 # ---------------------------------------------------
 st.sidebar.title("메뉴")
-mode = st.sidebar.radio("모드 선택", ["🔍 실시간 종목 진단", "📊 전일 시장 스캐너", "🖼️ 차트 이미지 분석"])
+mode = st.sidebar.radio("모드 선택", ["🔍 실시간 종목 진단", "📊 당일 시장 스캐너", "🖼️ 차트 이미지 분석"])
 
 # Refresh button (common)
 if st.sidebar.button("🔄 데이터/캐시 새로고침", help="스캔된 최신 데이터를 불러오고 화면을 갱신합니다."):
     st.cache_data.clear()
     st.rerun()
 
-if mode == "📊 전일 시장 스캐너":
+if mode == "📊 당일 시장 스캐너":
     # 기존 스캐너 UI (필터, 테이블, 선택)
     min_score = st.slider("최소 점수", 0, 100, 50, key='min_score_slider')
     df, sector_df, filename = load_data()
@@ -505,7 +505,7 @@ elif mode == "🔍 실시간 종목 진단":
     rs_6m = st.number_input("6개월 RS (0-100)", min_value=0, max_value=100, value=0, step=1)
     # fetch recent data (60 days)
     end_date = datetime.now()
-    start_date = end_date - timedelta(days=60)
+    start_date = end_date - timedelta(days=365)
     df_stock = fdr.DataReader(selected_code, start_date, end_date)
     if df_stock is not None and len(df_stock) > 0:
         cfg = load_config()
@@ -534,7 +534,7 @@ elif mode == "🖼️ 차트 이미지 분석":
         rs_3m = st.number_input("3개월 RS (0-100)", min_value=0, max_value=100, value=0, step=1, key='img_rs3')
         rs_6m = st.number_input("6개월 RS (0-100)", min_value=0, max_value=100, value=0, step=1, key='img_rs6')
         # fetch data & analyze same as diagnosis
-        df_stock = fdr.DataReader(selected_code, datetime.now() - timedelta(days=60), datetime.now())
+        df_stock = fdr.DataReader(selected_code, datetime.now() - timedelta(days=365), datetime.now())
         if df_stock is not None and len(df_stock) > 0:
             cfg = load_config()
             sig = calculate_signals(df_stock, cfg)
@@ -549,4 +549,5 @@ elif mode == "🖼️ 차트 이미지 분석":
                 st.error("점수 계산에 실패했습니다.")
         else:
             st.error("데이터를 불러올 수 없습니다.")
+
 
