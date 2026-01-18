@@ -11,9 +11,7 @@ import FinanceDataReader as fdr
 import yaml
 from scanner_core import calculate_signals, score_stock
 from image_analysis import analyze_chart_image
-
 st.set_page_config(layout="wide", page_title="추세추종 스캐너")
-
 # ---------------------------------------------------
 # Helper Functions
 # ---------------------------------------------------
@@ -25,7 +23,6 @@ def load_config():
         with open(cfg_path, "r", encoding="utf-8") as f:
             return yaml.safe_load(f)
     return {}
-
 @st.cache_data(ttl=300)
 def load_data():
     """Load scanner result and sector ranking data"""
@@ -67,7 +64,6 @@ def load_data():
     if os.path.exists("data/sector_rankings.csv"):
         sector_df = pd.read_csv("data/sector_rankings.csv")
     return df, sector_df, filename
-
 @st.cache_data
 def get_krx_codes():
     """Return DataFrame with KRX stock codes and names"""
@@ -77,14 +73,19 @@ def get_krx_codes():
             raise ValueError("Empty KRX data")
         return df[['Code', 'Name']]
     except Exception as e:
-        # Fallback using scanner data
+        # 1. Try static file fallback
+        try:
+            if os.path.exists("data/krx_tickers.csv"):
+                df_static = pd.read_csv("data/krx_tickers.csv", dtype={'Code': str})
+                return df_static[['Code', 'Name']]
+        except Exception:
+            pass
+        # 2. Fallback using scanner data
         df_scan, _, _ = load_data()
         if df_scan is not None and not df_scan.empty:
-            # st.warning(f"KRX 목록 다운로드 실패({e}). 스캔된 데이터를 대체 사용합니다.")
             fallback = df_scan[['code', 'name']].rename(columns={'code': 'Code', 'name': 'Name'})
             return fallback.drop_duplicates()
         return pd.DataFrame({'Code':[], 'Name':[]})
-
 def get_setup_explanations():
     return {
         'R': "🔥 재돌파 패턴 - 60일 내 BB 60-2 돌파 후 눌림 → 재돌파 (가장 강력)",
@@ -93,7 +94,6 @@ def get_setup_explanations():
         'C': "20일 이평선 돌파 + 거래량 증가 + ADX 상승 추세",
         '-': "기본 추세 및 유동성 기준만 충족",
     }
-
 def get_score_explanations():
     return {
         'trend_score': {
@@ -148,7 +148,6 @@ def get_score_explanations():
             ]
         }
     }
-
 # ---------------------------------------------------
 # UI Rendering for a single stock (used by all modes)
 # ---------------------------------------------------
@@ -459,18 +458,15 @@ def display_stock_report(row, sector_df=None, rs_3m=None, rs_6m=None):
             st.plotly_chart(fig, use_container_width=True)
     except Exception as e:
         st.warning(f"차트 생성 오류: {e}")
-
 # ---------------------------------------------------
 # Main App UI
 # ---------------------------------------------------
 st.sidebar.title("메뉴")
 mode = st.sidebar.radio("모드 선택", ["🔍 실시간 종목 진단", "📊 당일 시장 스캐너", "🖼️ 차트 이미지 분석"])
-
 # Refresh button (common)
 if st.sidebar.button("🔄 데이터/캐시 새로고침", help="스캔된 최신 데이터를 불러오고 화면을 갱신합니다."):
     st.cache_data.clear()
     st.rerun()
-
 if mode == "📊 당일 시장 스캐너":
     # 기존 스캐너 UI (필터, 테이블, 선택)
     min_score = st.slider("최소 점수", 0, 100, 50, key='min_score_slider')
@@ -537,7 +533,6 @@ if mode == "📊 당일 시장 스캐너":
     if selected_code:
         row = df[df['code'] == selected_code].iloc[0]
         display_stock_report(row, sector_df)
-
 elif mode == "🔍 실시간 종목 진단":
     st.subheader("🔍 실시간 종목 진단")
     stock_df = get_krx_codes()
@@ -564,7 +559,6 @@ elif mode == "🔍 실시간 종목 진단":
             st.error("점수 계산에 실패했습니다.")
     else:
         st.error("데이터를 불러올 수 없습니다.")
-
 elif mode == "🖼️ 차트 이미지 분석":
     st.subheader("🖼️ 차트 이미지 분석 (베타)")
     uploaded = st.file_uploader("차트 이미지 업로드", type=["png","jpg","jpeg"])
@@ -590,7 +584,6 @@ elif mode == "🖼️ 차트 이미지 분석":
                     st.markdown("**🧩 감지된 패턴**")
                     for pat in analysis_result.get("patterns", []):
                         st.success(f"{pat['name']} (신뢰도: {pat['confidence']*100:.0f}%)")
-
         # After image, still need stock selection & RS
         stock_df = get_krx_codes()
         selected_name = st.selectbox("종목명 선택 (오타 자동완성)", stock_df['Name'], key='img_name')
