@@ -66,12 +66,12 @@ def get_investor_data(code, days=10):
             else:
                 break
         
-        # 5일 순매수 합계
+        # 5일 순매수 금액 합계 (거래량 * 종가)
         recent_5 = data_list[:5]
-        foreign_net_5d = sum(d.get('foreignStraightPurchaseVolume', 0) or 0 for d in recent_5)
-        inst_net_5d = sum(d.get('institutionStraightPurchaseVolume', 0) or 0 for d in recent_5)
+        foreign_net_5d = sum((d.get('foreignStraightPurchaseVolume', 0) or 0) * (d.get('tradePrice', 0) or 0) for d in recent_5)
+        inst_net_5d = sum((d.get('institutionStraightPurchaseVolume', 0) or 0) * (d.get('tradePrice', 0) or 0) for d in recent_5)
         
-        print(f"[OK] {code}: 외국인연속={consecutive_buy}, 외국인5d={foreign_net_5d:,}, 기관5d={inst_net_5d:,}")
+        print(f"[OK] {code}: 외국인연속={consecutive_buy}, 외국인5d={foreign_net_5d:,.0f}, 기관5d={inst_net_5d:,.0f}")
         
         return {
             "foreign_consecutive_buy": consecutive_buy,
