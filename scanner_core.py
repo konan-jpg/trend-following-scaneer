@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-
 def bollinger_bands(close, n=20, k=2.0):
     """볼린저밴드 계산"""
     mid = close.rolling(n).mean()
@@ -8,11 +7,9 @@ def bollinger_bands(close, n=20, k=2.0):
     upper = mid + k * sd
     lower = mid - k * sd
     return mid, upper, lower
-
 def bandwidth(mid, upper, lower):
     """밴드폭 계산"""
     return (upper - lower) / mid.replace(0, np.nan)
-
 def percentile_rank(s, lookback):
     """백분위 순위 계산"""
     def pct(x):
@@ -21,41 +18,33 @@ def percentile_rank(s, lookback):
         last = x[-1]
         return 100.0 * (np.sum(x <= last) - 1) / (len(x) - 1)
     return s.rolling(lookback).apply(pct, raw=True)
-
 def adx(high, low, close, n=14):
     """ADX 지표 계산"""
     up = high.diff()
     down = -low.diff()
     plus_dm = np.where((up > down) & (up > 0), up, 0.0)
     minus_dm = np.where((down > up) & (down > 0), down, 0.0)
-
     prev_close = close.shift(1)
     tr1 = high - low
     tr2 = (high - prev_close).abs()
     tr3 = (low - prev_close).abs()
     tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-
     atr = tr.rolling(n).mean()
     plus_di = 100 * pd.Series(plus_dm, index=high.index).rolling(n).mean() / atr
     minus_di = 100 * pd.Series(minus_dm, index=high.index).rolling(n).mean() / atr
     denom = (plus_di + minus_di).replace(0, np.nan)
     dx = 100 * (plus_di - minus_di).abs() / denom
     return dx.rolling(n).mean()
-
 def find_climax_bar(df, vol_col="Volume", mult=5.0):
     """거래량 급등 기준봉 감지"""
     vol = df[vol_col]
     vol_avg20 = vol.rolling(20).mean()
     is_climax = vol >= (mult * vol_avg20)
-
     climax_high = df["High"].where(is_climax)
     climax_low = df["Low"].where(is_climax)
-
     climax_high_ffill = climax_high.ffill()
     climax_low_ffill = climax_low.ffill()
-
     return climax_high_ffill, climax_low_ffill, is_climax
-
 def detect_volume_dryup(df, cfg):
     """
     거래량 건조 감지 (매집 신호)
@@ -84,7 +73,6 @@ def detect_volume_dryup(df, cfg):
         "down_dryup_count": down_dryup,
         "has_accumulation_signal": dryup_count >= min_days
     }
-
 def detect_rebreakout(df, sig, lookback=60):
     """
     재돌파 패턴 감지
@@ -113,33 +101,26 @@ def detect_rebreakout(df, sig, lookback=60):
         "today_breakout": today_breakout,
         "rebreakout": rebreakout
     }
-
 def calculate_signals(df, cfg):
     """기술적 지표 및 신호 계산"""
     if df is None or len(df) < 60:
         return None
-
     close = df["Close"]
     high = df["High"]
     low = df["Low"]
     vol = df["Volume"]
-
     n = cfg["bollinger"]["length"]
     k = cfg["bollinger"]["stdev"]
     mid, upper, lower = bollinger_bands(close, n=n, k=k)
     bbw = bandwidth(mid, upper, lower)
     bbw_pct = percentile_rank(bbw, cfg["bollinger"]["bandwidth_lookback"])
-
     adx_val = adx(high, low, close, n=cfg["trend"]["adx_len"])
     climax_high, climax_low, is_climax = find_climax_bar(df, mult=cfg["volume"]["climax_mult"])
-
     squeeze = bbw_pct <= cfg["bollinger"]["squeeze_percentile_max"]
     expansion = bbw_pct >= cfg["bollinger"]["expansion_percentile_min"]
-
     breakout_60 = close > upper
     vol_confirm = vol >= cfg["volume"]["vol_confirm_mult"] * vol.rolling(20).mean()
     adx_ok = adx_val >= cfg["trend"]["adx_min"]
-
     setup_a = squeeze & breakout_60 & vol_confirm & adx_ok
     setup_b = (climax_high.notna()) & (close > climax_high) & vol_confirm
     
@@ -176,7 +157,6 @@ def calculate_signals(df, cfg):
         **dryup_info,
         **rebreakout_info,
     }
-
 def score_stock(df, sig, cfg, mktcap=None, investor_data=None, rs_3m=0, rs_6m=0):
     """
     종합 점수 계산 (100점 만점)
@@ -188,7 +168,6 @@ def score_stock(df, sig, cfg, mktcap=None, investor_data=None, rs_3m=0, rs_6m=0)
     """
     if sig is None:
         return None
-
     last = df.index[-1]
     close = float(df.loc[last, "Close"])
     mas = {p: float(df["Close"].rolling(p).mean().loc[last]) for p in cfg["trend"]["ma_periods"]}
@@ -339,7 +318,6 @@ def score_stock(df, sig, cfg, mktcap=None, investor_data=None, rs_3m=0, rs_6m=0)
     adv20 = float((df["Close"] * df["Volume"]).rolling(20).mean().loc[last])
     min_adv = cfg.get("universe", {}).get("min_adv20_value", 5_000_000_000)
     low_liquidity = adv20 < min_adv
-
     return {
         "close": close,
         "trend_score": float(trend_score),
