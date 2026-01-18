@@ -370,45 +370,51 @@ if selected_code:
             stop_price = row.get('stop', current_price * 0.92)
             bb_upper = row.get('bb_upper', current_price * 1.05)  # 없으면 추정
             
-            # 매수 전략 판단 로직
+            # 시나리오별 가격 계산
+            pullback_price = ma20  # 눌림목 기준: 20일선
+            breakout_price = bb_upper if bb_upper > current_price else current_price * 1.02 # 돌파 기준: 볼밴 상단
+            
+            # 리스크 계산
+            risk_pullback = (pullback_price - stop_price) / pullback_price * 100
+            risk_breakout = (breakout_price - stop_price) / breakout_price * 100
+            
+            # 현재 상태 진단
             price_vs_ma20 = (current_price - ma20) / ma20 * 100 if ma20 > 0 else 0
-            price_vs_ma60 = (current_price - ma60) / ma60 * 100 if ma60 > 0 else 0
             
-            # 전략 결정
-            if price_vs_ma20 <= 3:  # MA20 근처 눌림목
-                strategy = "눌림목 매수"
-                strategy_icon = "🟢"
-                buy_price = ma20
-                reason = "MA20 근처로 눌림. 지지선에서 매수 기회"
-            elif price_vs_ma20 > 8:  # MA20에서 많이 벗어남
-                strategy = "돌파 매수 대기"
-                strategy_icon = "🟡"
-                buy_price = bb_upper if bb_upper > current_price else current_price * 1.02
-                reason = "고점권. BB상단 돌파 시 진입 고려"
-            else:  # 중간 지점
-                if row.get('setup', '-') in ['R', 'B']:  # 강력한 패턴
-                    strategy = "돌파 매수"
-                    strategy_icon = "🔴"
-                    buy_price = current_price * 1.01  # 직전 고점 위
-                    reason = f"Setup {row.get('setup')}: 강한 패턴. 돌파 시 진입"
-                else:
-                    strategy = "눌림목 대기"
-                    strategy_icon = "🟠"
-                    buy_price = ma20
-                    reason = "MA20까지 눌림 대기 후 진입 추천"
-            
-            # 손절가 기준 리스크 계산
-            risk_pct = (buy_price - stop_price) / buy_price * 100 if buy_price > 0 else 0
-            
-            # UI 표시 (모바일 친화적 - 세로 배치)
-            st.write(f"**{strategy_icon} {strategy}**")
-            st.write(f"📍 **추천 매수가: {buy_price:,.0f}원**")
-            st.info(f"""
-**판단 근거**: {reason}
+            status_msg = ""
+            if price_vs_ma20 <= 3:
+                status_msg = "🟢 현재 **눌림목 구간**입니다. 분할 매수 유효."
+            elif price_vs_ma20 > 8:
+                status_msg = "🟡 현재 **고점 구간**입니다. 돌파 확인 후 진입 추천."
+            else:
+                status_msg = "🟠 **중립 구간**입니다. 방향성 관찰 필요."
 
-• 현재가 vs MA20: {price_vs_ma20:+.1f}%  
-• 손절가: {stop_price:,.0f}원 (리스크 {risk_pct:.1f}%)
-""")
+            # UI 표시 (모바일 친화적 - 세로 배치 + 박스)
+            st.info(status_msg)
+            
+            col_sc1, col_sc2 = st.columns(2)
+            
+            with col_sc1:
+                st.markdown(f"""
+                <div style="background-color:rgba(0,255,0,0.1); padding:10px; border-radius:10px;">
+                    <strong>📉 눌림목 전략</strong><br>
+                    목표 매수가: <strong>{pullback_price:,.0f}원</strong><br>
+                    <span style="font-size:0.8em; color:gray;">(MA20 부근)</span><br>
+                    <span style="font-size:0.8em;">리스크: {risk_pullback:.1f}%</span>
+                </div>
+                """, unsafe_allow_html=True)
+                
+            with col_sc2:
+                st.markdown(f"""
+                <div style="background-color:rgba(255,0,0,0.1); padding:10px; border-radius:10px;">
+                    <strong>🚀 돌파 전략</strong><br>
+                    목표 매수가: <strong>{breakout_price:,.0f}원</strong><br>
+                    <span style="font-size:0.8em; color:gray;">(BB상단 돌파)</span><br>
+                    <span style="font-size:0.8em;">리스크: {risk_breakout:.1f}%</span>
+                </div>
+                """, unsafe_allow_html=True)
+
+            st.caption(f"💡 손절가: {stop_price:,.0f}원 (필수 준수)")
         except Exception as e:
             st.warning(f"매수 전략 계산 오류: {e}")
         
