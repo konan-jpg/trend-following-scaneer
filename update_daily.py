@@ -21,9 +21,31 @@ def get_stock_list(cfg):
             stocks = stocks[stocks["Marcap"] >= cfg["universe"]["min_mktcap_krw"]]
             stocks = stocks.sort_values("Marcap", ascending=False)
         
-        # Sector 컬럼이 없는 경우 처리
+        # Sector 정보가 없으면 KRX에서 직접 가져오기
+        if "Sector" not in stocks.columns or stocks["Sector"].isna().all():
+            try:
+                print("[INFO] KRX에서 섹터 정보 가져오는 중...")
+                krx_url = "http://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13"
+                krx_df = pd.read_html(krx_url, encoding='euc-kr')[0]
+                krx_df = krx_df[["종목코드", "업종"]]
+                krx_df.columns = ["Code", "Sector"]
+                krx_df["Code"] = krx_df["Code"].astype(str).str.zfill(6)
+                
+                # 기존 stocks에 Sector 컬럼 있으면 제거
+                if "Sector" in stocks.columns:
+                    stocks = stocks.drop(columns=["Sector"])
+                
+                stocks["Code"] = stocks["Code"].astype(str).str.zfill(6)
+                stocks = stocks.merge(krx_df, on="Code", how="left")
+                stocks["Sector"] = stocks["Sector"].fillna("기타")
+                print(f"[OK] 섹터 정보 로드 완료: {stocks['Sector'].nunique()}개 업종")
+            except Exception as e:
+                print(f"[WARN] KRX 섹터 정보 로드 실패: {e}")
+                stocks["Sector"] = "기타"
+        
+        # Sector가 여전히 없으면 기본값
         if "Sector" not in stocks.columns:
-            stocks["Sector"] = "Unknown"
+            stocks["Sector"] = "기타"
             
         os.makedirs("data", exist_ok=True)
         stocks.to_csv("data/krx_backup.csv", index=False, encoding="utf-8-sig")
@@ -93,7 +115,7 @@ def calculate_sector_rankings(stocks, top_n=500):
     시장 전체 주도 섹터 분석 (독립적 검증용)
     - 시총 상위 500개 종목을 대상으로 섹터별 평균 수익률 계산
     """
-    print(f"\\n[SECTOR] 시장 주도 섹터 분석 시작 (상위 {top_n}개 모집단)...")
+    print(f"\n[SECTOR] 시장 주도 섹터 분석 시작 (상위 {top_n}개 모집단)...")
     
     try:
         # 1. 모집단 선정 (시총 상위)
@@ -169,7 +191,7 @@ def main():
         calculate_sector_rankings(stocks)
 
     # === 1단계: 기술적 스캔 ===
-    print("\\n[STEP1] 기술적 스캔 시작...")
+    print("\n[STEP1] 기술적 스캔 시작...")
     tech_results = []
     end = datetime.now()
     start = end - timedelta(days=400)
@@ -225,7 +247,7 @@ def main():
                 print(f"[WARN] {name} ({code}) 에러: {e}")
             continue
     
-    print(f"\\n[STEP1 DONE] 총 {scanned_count}개 검토, {len(tech_results)}개 기술적 조건 충족")
+    print(f"\n[STEP1 DONE] 총 {scanned_count}개 검토, {len(tech_results)}개 기술적 조건 충족")
     
     if not tech_results:
         print("[WARN] 조건에 맞는 종목이 없습니다.")
@@ -247,7 +269,7 @@ def main():
     top_candidates = cfg.get("investor", {}).get("top_candidates", 100)
     candidates = tech_df.head(top_candidates)
     
-    print(f"\\n[STEP2] 상위 {len(candidates)}개 종목 수급 데이터 조회...")
+    print(f"\n[STEP2] 상위 {len(candidates)}개 종목 수급 데이터 조회...")
     
     final_results = []
     for idx, row in candidates.iterrows():
@@ -304,7 +326,7 @@ def main():
         
         time.sleep(0.2)  # API 부하 방지
     
-    print(f"\\n[STEP2 DONE] {len(final_results)}개 종목 최종 점수 계산 완료")
+    print(f"\n[STEP2 DONE] {len(final_results)}개 종목 최종 점수 계산 완료")
     
     # 결과 저장
     scan_day = datetime.now().strftime("%Y-%m-%d")
