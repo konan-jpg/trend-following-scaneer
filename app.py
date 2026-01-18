@@ -597,74 +597,67 @@ if selected_code:
                     )
                 
                 # 거래량 바
-                colors = ['red' if chart_df.loc[i, 'Close'] >= chart_df.loc[i, 'Open'] 
-                         else 'blue' for i in chart_df.index]
-                
+                colors = ['red' if o <= c else 'blue' for o, c in zip(chart_df['Open'], chart_df['Close'])]
                 fig.add_trace(
                     go.Bar(x=chart_df.index, y=chart_df['Volume'],
-                          name='거래량', marker_color=colors, showlegend=False),
+                           name='거래량', marker_color=colors, opacity=0.5),
                     row=2, col=1
                 )
-
-                # 캔들 패턴 및 거래량 급등 주석 추가 (최근 60일)
+                
+                # 차트 주석 추가 (장대양봉, 대량거래 등)
                 try:
-                    recent_df = chart_df.iloc[-60:] if len(chart_df) > 60 else chart_df
-                    vol_ma20 = chart_df['Volume'].rolling(20).mean()  # 전체 데이터로 MA 계산
+                    vol_ma20 = chart_df['Volume'].rolling(20).mean()
                     
-                    for date in recent_df.index:
-                        vol_val = recent_df.loc[date, 'Volume']
-                        ma_val = vol_ma20.loc[date] if date in vol_ma20.index else 0
-                        open_p = recent_df.loc[date, 'Open']
-                        close_p = recent_df.loc[date, 'Close']
-                        high_p = recent_df.loc[date, 'High']
-                        low_p = recent_df.loc[date, 'Low']
+                    for i in range(20, len(chart_df)):
+                        date = chart_df.index[i]
+                        close = chart_df['Close'].iloc[i]
+                        open_p = chart_df['Open'].iloc[i]
+                        vol = chart_df['Volume'].iloc[i]
+                        prev_close = chart_df['Close'].iloc[i-1]
                         
-                        is_high_volume = pd.notna(ma_val) and ma_val > 0 and vol_val >= ma_val * 2.5
-                        is_bullish = close_p > open_p
-                        is_bearish = close_p < open_p
-                        is_long_candle = open_p > 0 and abs(close_p - open_p) / open_p >= 0.04
+                        # 조건 정의
+                        is_bullish = close >= open_p
+                        body_pct = abs(close - open_p) / open_p * 100
+                        change_pct = (close - prev_close) / prev_close * 100
+                        vol_ratio = vol / vol_ma20.iloc[i] if vol_ma20.iloc[i] > 0 else 0
                         
-                        # 장대양봉 + 대량거래
-                        if is_high_volume and is_bullish and is_long_candle:
+                        annotation_text = ""
+                        bg_color = ""
+                        
+                        # 1. 장대양봉 + 대량 (4% 이상 상승, 거래량 2.5배)
+                        if change_pct >= 4 and vol_ratio >= 2.5:
+                            annotation_text = "🔥장대+대량"
+                            bg_color = "#FFD700"  # 골드
+                        # 2. 장대음봉 + 대량 (4% 이상 하락, 거래량 2.5배)
+                        elif change_pct <= -4 and vol_ratio >= 2.5:
+                            annotation_text = "💀장대+대량"
+                            bg_color = "#00BFFF"  # 딥 스카이 블루
+                        # 3. 대량거래 (그냥 거래량만 2.5배)
+                        elif vol_ratio >= 2.5:
+                            annotation_text = "⚡대량"
+                            bg_color = "#FFFFFF"
+                        
+                        if annotation_text:
                             fig.add_annotation(
-                                x=date,
-                                y=high_p,
-                                text="🔥장대양봉+대량",
-                                showarrow=True,
-                                arrowhead=2,
-                                ay=-30,
-                                font=dict(color="red", size=10, weight="bold"),
-                                bgcolor="rgba(255,200,200,0.8)",
-                                row=1, col=1
-                            )
-                        # 장대음봉 + 대량거래
-                        elif is_high_volume and is_bearish and is_long_candle:
-                            fig.add_annotation(
-                                x=date,
-                                y=low_p,
-                                text="💀장대음봉+대량",
-                                showarrow=True,
-                                arrowhead=2,
-                                ay=30,
-                                font=dict(color="blue", size=10, weight="bold"),
-                                bgcolor="rgba(200,200,255,0.8)",
-                                row=1, col=1
-                            )
-                        # 대량거래만 (양봉)
-                        elif is_high_volume and is_bullish:
-                            fig.add_annotation(
-                                x=date,
-                                y=high_p,
-                                text="⚡대량",
+                                x=date, y=chart_df['High'].iloc[i],
+                                text=annotation_text,
                                 showarrow=True,
                                 arrowhead=1,
-                                ay=-20,
-                                font=dict(color="red", size=9),
+                                arrowcolor="gray",
+                                arrowsize=1,
+                                arrowwidth=1,
+                                ax=0, ay=-30,
+                                bgcolor=bg_color,
+                                bordercolor="gray",
+                                borderwidth=1,
+                                opacity=0.8,
+                                font=dict(size=9, color="black"),
                                 row=1, col=1
                             )
                 except Exception as e:
-                    print(f"Annotation error: {e}")
-                
+                    print(f"Annotation Error: {e}")
+
+
                 # 레이아웃
                 fig.update_layout(
                     height=550,
@@ -702,4 +695,3 @@ else:
 
 st.markdown("---")
 st.caption(f"업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | {filename}")
-
