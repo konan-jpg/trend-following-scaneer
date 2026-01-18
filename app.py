@@ -24,7 +24,7 @@ def load_data():
                 return '0000-00-00'
         
         latest_file = max(merged_files, key=extract_date)
-        df = pd.read_csv(latest_file)
+        df = pd.read_csv(latest_file, dtype={'code': str})  # 종목코드를 문자열로
         return df, os.path.basename(latest_file)
 
     chunk_files = glob.glob("data/partial/scanner_output*chunk*.csv")
@@ -33,7 +33,7 @@ def load_data():
         df_list = []
         for f in sorted(chunk_files):
             try:
-                sub_df = pd.read_csv(f)
+                sub_df = pd.read_csv(f, dtype={'code': str})  # 종목코드를 문자열로
                 df_list.append(sub_df)
             except Exception as e:
                 st.warning(f"파일 읽기 실패: {f}")
@@ -58,6 +58,10 @@ if df is None:
     st.error("❌ 결과 파일이 없습니다.")
     st.stop()
 
+# 종목코드 6자리로 맞추기 (앞자리 0 채우기)
+if 'code' in df.columns:
+    df['code'] = df['code'].astype(str).str.zfill(6)
+
 st.success(f"✅ 데이터 로드 완료: {filename} (총 {len(df)}개 종목)")
 
 # 점수 정렬
@@ -73,51 +77,57 @@ min_score = st.sidebar.slider("최소 점수", 0, 100, 50)
 
 filtered_df = df[df['total_score'] >= min_score].copy()
 
-# 표 표시 (rank 컬럼 제외, 인덱스도 숨김)
+# 표 표시
 st.subheader(f"🏆 상위 랭킹 종목 ({len(filtered_df)}개)")
 
 display_cols = ['code', 'name', 'close', 'total_score', 'trend_score', 'vol_score']
 display_cols = [col for col in display_cols if col in filtered_df.columns]
 
-# 표시용 데이터프레임 생성 (순위 추가)
+# 표시용 데이터프레임 생성
 display_df = filtered_df[display_cols].copy()
 display_df.insert(0, '순위', range(1, len(display_df) + 1))
 
 # 컬럼명 한글화
-column_config = {
-    '순위': st.column_config.NumberColumn('순위', width='small'),
-    'code': st.column_config.TextColumn('종목코드', width='small'),
-    'name': st.column_config.TextColumn('종목명', width='medium'),
-    'close': st.column_config.NumberColumn('현재가', format='%d원'),
-    'total_score': st.column_config.NumberColumn('총점', format='%d점'),
-    'trend_score': st.column_config.NumberColumn('추세', format='%d점'),
-    'vol_score': st.column_config.NumberColumn('거래량', format='%d점'),
-}
+display_df.columns = ['순위', '종목코드', '종목명', '현재가', '총점', '추세점수', '거래량점수']
 
-# 클릭 가능한 테이블
-event = st.dataframe(
+# 표 표시 (클릭 불가능한 일반 테이블)
+st.dataframe(
     display_df,
     use_container_width=True,
     height=400,
-    column_config=column_config,
-    hide_index=True,
-    on_select="rerun",
-    selection_mode="single-row"
+    hide_index=True
 )
 
-# 선택된 행 처리
-if event.selection and len(event.selection.rows) > 0:
-    selected_idx = event.selection.rows[0]
-    selected_code = display_df.iloc[selected_idx]['code']
+# 종목 선택 (라디오 버튼 방식)
+st.markdown("---")
+st.subheader("📊 종목 선택")
+
+# 상위 20개 종목만 선택 가능하도록
+top_n = min(20, len(filtered_df))
+stock_options = [
+    f"{row['name']} ({row['code']}) - {row['total_score']:.0f}점"
+    for _, row in filtered_df.head(top_n).iterrows()
+]
+
+if len(stock_options) > 0:
+    selected_option = st.radio(
+        "분석할 종목을 선택하세요 (상위 20개)",
+        stock_options,
+        index=0,
+        horizontal=False
+    )
+    
+    # 선택된 종목코드 추출
+    selected_code = selected_option.split('(')[1].split(')')[0].strip()
     
     # 원본 데이터에서 종목 찾기
-    matching = df[df['code'].astype(str) == str(selected_code)]
+    matching = df[df['code'] == selected_code]
     
     if len(matching) > 0:
         row = matching.iloc[0]
         
         st.markdown("---")
-        st.subheader(f"📊 {row['name']} ({row['code']}) 상세 분석")
+        st.subheader(f"📈 {row['name']} ({row['code']}) 상세 분석")
         
         # 메트릭 표시
         col1, col2, col3, col4 = st.columns(4)
@@ -157,7 +167,7 @@ if event.selection and len(event.selection.rows) > 0:
             if 'trigger_score' in row and pd.notna(row['trigger_score']):
                 st.write(f"**트리거 점수**: {row['trigger_score']:.0f}점")
         
-        # 차트 표시 (FinanceDataReader로 최근 데이터 가져오기)
+        # 차트 표시
         st.markdown("#### 📉 가격 차트 (최근 6개월)")
         
         try:
@@ -204,7 +214,7 @@ if event.selection and len(event.selection.rows) > 0:
                     line=dict(color='blue', width=1)
                 ))
                 
-                # 손절가 라인 추가
+                # 손절가 라인
                 if 'stop' in row and pd.notna(row['stop']):
                     fig.add_hline(
                         y=row['stop'],
@@ -213,7 +223,7 @@ if event.selection and len(event.selection.rows) > 0:
                         annotation_text=f"손절: {row['stop']:,.0f}원"
                     )
                 
-                # 레이아웃 설정
+                # 레이아웃
                 fig.update_layout(
                     title=f"{row['name']} ({row['code']})",
                     yaxis_title="가격 (원)",
@@ -230,13 +240,9 @@ if event.selection and len(event.selection.rows) > 0:
                 
         except Exception as e:
             st.error(f"차트 생성 중 에러: {e}")
-            st.info("FinanceDataReader 설치가 필요할 수 있습니다.")
-    
-    else:
-        st.error(f"종목 {selected_code}를 찾을 수 없습니다.")
 
 else:
-    st.info("👆 위 표에서 종목을 클릭하면 상세 차트와 분석 정보가 표시됩니다.")
+    st.info("조건에 맞는 종목이 없습니다.")
 
 # 푸터
 st.markdown("---")
