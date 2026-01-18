@@ -485,34 +485,59 @@ if selected_code:
                 pass
             
             # ==============================
-            # 🥇 추천 우선순위 결정 로직
+            # 🥇 전략별 점수 산정 및 순위 결정
             # ==============================
-            best_strategy = "관망"
-            priority_reason = ""
-            
             price_vs_ma20 = (current_price - ma20) / ma20 * 100 if ma20 > 0 else 0
             
-            # 1순위: 오닐 패턴 (가장 강력하고 희소함)
+            # 1. 오닐/미너비니 점수
             if oneil_price > 0:
-                best_strategy = "💎 오닐/미너비니"
-                priority_reason = f"패턴({oneil_setup_name}) 발생"
-            # 2순위: 눌림목 (리스크가 적음, MA20 근접)
-            elif -2 <= price_vs_ma20 <= 4:
-                best_strategy = "📉 눌림목"
-                priority_reason = "MA20 지지선 근접 (저위험)"
-            # 3순위: 돌파 (추세가 강함)
-            elif current_price >= bb_upper * 0.98:
-                best_strategy = "🚀 추세 돌파"
-                priority_reason = "볼린저밴드 상단 돌파 임박/진행"
+                oneil_score = 100  # 패턴 발생 시 최고점
+                oneil_reason = f"패턴({oneil_setup_name}) 발생"
             else:
-                best_strategy = "중립/관망"
-                priority_reason = "명확한 진입 시그널 없음"
-
-            # 우선순위 표시
-            if best_strategy != "중립/관망":
-                st.success(f"🏆 **추천 1순위**: {best_strategy} ({priority_reason})")
+                oneil_score = 30
+                oneil_reason = "패턴 대기중"
+            
+            # 2. 눌림목 점수 (MA20 근접도에 따라)
+            if -2 <= price_vs_ma20 <= 4:
+                pullback_score = 95  # MA20 근처
+                pullback_reason = "MA20 지지선 근접 (저위험)"
+            elif -5 <= price_vs_ma20 <= 6:
+                pullback_score = 70  # 가까운 편
+                pullback_reason = "MA20 부근 (관찰 필요)"
             else:
-                st.info(f"👀 현재 상태: {best_strategy} ({priority_reason})")
+                pullback_score = 50  # 멀리 떨어짐
+                pullback_reason = "MA20과 거리 있음"
+            
+            # 3. 추세 돌파 점수 (BB 상단 근접도에 따라)
+            if current_price >= bb_upper * 0.98:
+                breakout_score = 90  # 돌파 임박/진행
+                breakout_reason = "볼린저밴드 상단 돌파 임박"
+            elif current_price >= bb_upper * 0.95:
+                breakout_score = 75  # 상단 근처
+                breakout_reason = "볼린저밴드 상단 접근"
+            else:
+                breakout_score = 55  # 아직 멀다
+                breakout_reason = "볼린저밴드 중하단"
+            
+            # 전략 리스트 (이름, 점수, 이유)
+            strategies = [
+                ("💎 오닐/미너비니", oneil_score, oneil_reason),
+                ("📉 눌림목", pullback_score, pullback_reason),
+                ("🚀 추세 돌파", breakout_score, breakout_reason)
+            ]
+            
+            # 점수순으로 정렬
+            strategies.sort(key=lambda x: x[1], reverse=True)
+            
+            # 순위 표시
+            st.markdown("**🎯 매수 전략 우선순위**")
+            for rank, (name, score, reason) in enumerate(strategies, 1):
+                if rank == 1:
+                    st.success(f"🥇 **{rank}순위**: {name} - {reason}")
+                elif rank == 2:
+                    st.info(f"🥈 **{rank}순위**: {name} - {reason}")
+                else:
+                    st.warning(f"🥉 **{rank}순위**: {name} - {reason}")
             
             # 3-Track UI (들여쓰기 없이 작성하여 HTML 렌더링 보장)
             col_sc1, col_sc2, col_sc3 = st.columns(3)
