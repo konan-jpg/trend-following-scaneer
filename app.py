@@ -130,7 +130,13 @@ st.title("📊 추세추종 스캐너")
 
 # 상단 필터
 with st.expander("🎛️ 필터 설정", expanded=False):
-    min_score = st.slider("최소 점수", 0, 100, 50)
+    col_f1, col_f2 = st.columns([3, 1])
+    with col_f1:
+        min_score = st.slider("최소 점수", 0, 100, 50)
+    with col_f2:
+        if st.button("🔄 새로고침"):
+            st.cache_data.clear()
+            st.rerun()
 
 df, sector_df, filename = load_data()
 
@@ -151,18 +157,24 @@ col_a, col_b = st.columns(2)
 with col_a:
     st.info("📊 시장 주도 섹터 (Top-Down)")
     if sector_df is not None and len(sector_df) > 0:
-        top_sectors = sector_df.head(5)[['Sector', 'AvgReturn_3M', 'StockCount']]
-        st.dataframe(
-            top_sectors.style.format({'AvgReturn_3M': '{:.1f}%'}),
-            use_container_width=True,
-            hide_index=True
-        )
+        # '기타' 섹터가 1위가 아닌 경우만 표시
+        valid_sector_df = sector_df[sector_df['Sector'] != '기타']
+        if len(valid_sector_df) > 0:
+            top_sectors = valid_sector_df.head(5)[['Sector', 'AvgReturn_3M', 'StockCount']]
+            st.dataframe(
+                top_sectors.style.format({'AvgReturn_3M': '{:.1f}%'}),
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.caption("⚠️ 유효한 섹터 데이터가 없습니다.")
+            st.caption("💡 다음 워크플로우 실행 시 생성됩니다.")
     else:
-        st.caption("⚠️ 섹터 랭킹 데이터가 없습니다. GitHub Actions 실행 후 생성됩니다.")
+        st.caption("⚠️ 섹터 랭킹 파일(`sector_rankings.csv`)이 없습니다.")
+        st.caption("💡 GitHub에 코드 푸시 후 워크플로우를 실행하세요.")
     
 with col_b:
     st.success("🎯 스캐너 포착 섹터")
-    # 스캐너 결과에서 섹터 빈도 계산 ('기타' 제외)
     if 'sector' in df.columns:
         valid_sectors = df[df['sector'] != '기타']['sector']
         if len(valid_sectors) > 0:
@@ -171,14 +183,15 @@ with col_b:
             
             # 시장 주도 섹터와 일치 여부 확인
             if sector_df is not None:
-                market_leaders = sector_df.head(5)['Sector'].tolist()
+                market_leaders = sector_df[sector_df['Sector'] != '기타'].head(5)['Sector'].tolist()
                 scanner_sectors['일치'] = scanner_sectors['Sector'].apply(
                     lambda x: "✅" if x in market_leaders else "-"
                 )
             
             st.dataframe(scanner_sectors, use_container_width=True, hide_index=True)
         else:
-            st.caption("⚠️ 섹터 정보가 없습니다. 다음 스캔 후 표시됩니다.")
+            st.caption("⚠️ 섹터 정보가 '기타'만 있습니다.")
+            st.caption("💡 워크플로우 재실행 시 정상 로드됩니다.")
     else:
         st.caption("⚠️ 섹터 컬럼이 없습니다.")
 
@@ -405,24 +418,33 @@ if selected_code:
             current_price = row['close']
             ma20 = row.get('ma20', current_price)
             ma60 = row.get('ma60', current_price)
-            stop_price = row.get('stop', current_price * 0.92)
-            bb_upper = row.get('bb_upper', current_price * 1.05)  # 없으면 추정
+            base_stop = row.get('stop', current_price * 0.92)
+            bb_upper = row.get('bb_upper', current_price * 1.05)
             
-            # 시나리오별 가격 계산
-            pullback_price = ma20  # 눌림목 기준: 20일선
-            breakout_price = bb_upper if bb_upper > current_price else current_price * 1.02 # 돌파 기준: 볼밴 상단
+            # ==============================
+            # 전략별 진입가 및 손절가 (동적 계산)
+            # ==============================
             
-            # 오닐/미너비니 전략 가격 계산 (차트 데이터 필요)
+            # 1. 눌림목 전략: MA20 진입, 손절 = MA20 -3% 또는 기존 stop 중 높은 쪽
+            pullback_price = ma20
+            pullback_stop = max(pullback_price * 0.97, base_stop)
+            risk_pullback = (pullback_price - pullback_stop) / pullback_price * 100
+            
+            # 2. 추세 돌파 전략: BB상단 진입, 손절 = 진입가 -5%
+            breakout_price = bb_upper if bb_upper > current_price else current_price * 1.02
+            breakout_stop = breakout_price * 0.95
+            risk_breakout = (breakout_price - breakout_stop) / breakout_price * 100
+            
+            # 3. 오닐/미너비니 전략: 패턴별 가격, 손절 = 진입가 -7%
             oneil_msg = "패턴 형성 대기중"
             oneil_price = 0
+            oneil_stop = 0
             oneil_risk = 0
             oneil_setup_name = "-"
             
-            # 차트 데이터가 있으면 패턴 분석
             try:
                 import FinanceDataReader as fdr
                 from datetime import timedelta
-                # 최신 데이터 가져와서 분석
                 end_date_s = datetime.now()
                 start_date_s = end_date_s - timedelta(days=60)
                 sub_df = fdr.DataReader(row['code'], start_date_s, end_date_s)
@@ -431,40 +453,36 @@ if selected_code:
                     today = sub_df.iloc[-1]
                     prev = sub_df.iloc[-2]
                     
-                    # 1. Inside Day (변동성 축소) -> 오늘 고가 돌파 시 매수
+                    # Inside Day 패턴
                     if today['High'] < prev['High'] and today['Low'] > prev['Low']:
                         oneil_price = today['High']
                         oneil_setup_name = "Inside Day 돌파"
-                        oneil_msg = f"오늘 고가({int(today['High']):,}원) 돌파 시 진입"
+                        oneil_msg = f"고가({int(today['High']):,}원) 돌파 시"
                     
-                    # 2. Oops Reversal (속임수 반전) -> 상승 추세일 때만 유효
+                    # Oops Reversal 패턴
                     elif today['Open'] < prev['Low'] and today['Close'] > prev['Low'] and today['Close'] > ma20:
                         oneil_price = today['Close']
                         oneil_setup_name = "Oops Reversal"
-                        oneil_msg = "속임수 반전 확인. 종가/익일 시가 진입"
+                        oneil_msg = "반전 확인. 종가/익일시가"
                         
-                    # 3. Pocket Pivot (거래량 매집) -> 종가 진입
+                    # Pocket Pivot 패턴
                     else:
                         vol_ma = sub_df['Volume'].rolling(20).mean().iloc[-1]
                         if today['Volume'] > vol_ma * 2.5 and today['Close'] > prev['Close'] * 1.04:
                             oneil_price = today['Close']
                             oneil_setup_name = "Pocket Pivot"
-                            oneil_msg = "거래량 급등(매집). 눌림 시 매수 유효"
+                            oneil_msg = "거래량 급등. 매수 유효"
                         
-                    # 오닐 전략 리스크
+                    # 오닐 손절가: 진입가 -7% (오닐 철칙)
                     if oneil_price > 0:
-                        oneil_risk = (oneil_price - stop_price) / oneil_price * 100
+                        oneil_stop = oneil_price * 0.93
+                        oneil_risk = (oneil_price - oneil_stop) / oneil_price * 100
             except:
                 pass
-            
-            # 리스크 계산
-            risk_pullback = (pullback_price - stop_price) / pullback_price * 100
-            risk_breakout = (breakout_price - stop_price) / breakout_price * 100
             
             # 현재 상태 진단
             price_vs_ma20 = (current_price - ma20) / ma20 * 100 if ma20 > 0 else 0
             
-            status_msg = ""
             if price_vs_ma20 <= 3:
                 status_msg = "🟢 현재 **눌림목 구간**입니다. 분할 매수 유효."
             elif price_vs_ma20 > 8:
@@ -472,47 +490,54 @@ if selected_code:
             else:
                 status_msg = "🟠 **중립 구간**입니다. 방향성 관찰 필요."
 
-            # UI 표시 (3-Track 전략)
             st.info(status_msg)
             
+            # 3-Track UI
             col_sc1, col_sc2, col_sc3 = st.columns(3)
             
             with col_sc1:
                 st.markdown(f"""
                 <div style="background-color:rgba(0,255,0,0.1); padding:10px; border-radius:10px; height:100%;">
-                    <strong>📉 기본 눌림목</strong><br>
-                    목표: <strong>{pullback_price:,.0f}원</strong><br>
-                    <span style="font-size:0.8em; color:gray;">(MA20 지지)</span><br>
-                    <span style="font-size:0.8em;">리스크: {risk_pullback:.1f}%</span>
+                    <strong>📉 눌림목</strong><br>
+                    진입: <strong>{pullback_price:,.0f}원</strong><br>
+                    손절: {pullback_stop:,.0f}원<br>
+                    <span style="font-size:0.8em; color:#666;">리스크: {risk_pullback:.1f}%</span>
                 </div>
                 """, unsafe_allow_html=True)
                 
             with col_sc2:
                 st.markdown(f"""
-                <div style="background-color:rgba(255,0,0,0.1); padding:10px; border-radius:10px; height:100%;">
-                    <strong>🚀 기본 돌파</strong><br>
-                    목표: <strong>{breakout_price:,.0f}원</strong><br>
-                    <span style="font-size:0.8em; color:gray;">(BB 상단)</span><br>
-                    <span style="font-size:0.8em;">리스크: {risk_breakout:.1f}%</span>
+                <div style="background-color:rgba(255,165,0,0.1); padding:10px; border-radius:10px; height:100%;">
+                    <strong>🚀 추세 돌파</strong><br>
+                    진입: <strong>{breakout_price:,.0f}원</strong><br>
+                    손절: {breakout_stop:,.0f}원<br>
+                    <span style="font-size:0.8em; color:#666;">리스크: {risk_breakout:.1f}%</span>
                 </div>
                 """, unsafe_allow_html=True)
                 
             with col_sc3:
-                # 오닐 전략 스타일 (활성화 여부에 따라 다르게)
-                bg_color = "rgba(0,0,255,0.1)" if oneil_price > 0 else "rgba(128,128,128,0.1)"
-                price_disp = f"{oneil_price:,.0f}원" if oneil_price > 0 else "-"
-                risk_disp = f"리스크: {oneil_risk:.1f}%" if oneil_price > 0 else oneil_msg
+                bg_color = "rgba(138,43,226,0.1)" if oneil_price > 0 else "rgba(128,128,128,0.1)"
+                if oneil_price > 0:
+                    content = f"""
+                    진입: <strong>{oneil_price:,.0f}원</strong><br>
+                    손절: {oneil_stop:,.0f}원<br>
+                    <span style="font-size:0.8em; color:#666;">리스크: {oneil_risk:.1f}%</span>
+                    """
+                else:
+                    content = f"""
+                    <span style="color:gray;">{oneil_msg}</span><br>
+                    <span style="font-size:0.8em;">패턴이 나타나면 추천됩니다</span>
+                    """
                 
                 st.markdown(f"""
                 <div style="background-color:{bg_color}; padding:10px; border-radius:10px; height:100%;">
                     <strong>💎 오닐/미너비니</strong><br>
-                    목표: <strong>{price_disp}</strong><br>
-                    <span style="font-size:0.8em; color:gray;">({oneil_setup_name})</span><br>
-                    <span style="font-size:0.8em;">{risk_disp}</span>
+                    <span style="font-size:0.8em; color:#999;">({oneil_setup_name})</span><br>
+                    {content}
                 </div>
                 """, unsafe_allow_html=True)
 
-            st.caption(f"💡 손절가: {stop_price:,.0f}원 (필수 준수)")
+            st.caption(f"⚠️ 기본 손절가: {base_stop:,.0f}원 | 전략별 손절가는 진입가 기준으로 동적 계산됩니다.")
         except Exception as e:
             st.warning(f"매수 전략 계산 오류: {e}")
         
