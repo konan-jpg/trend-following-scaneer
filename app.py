@@ -26,27 +26,36 @@ def load_data():
         
         latest_file = max(merged_files, key=extract_date)
         df = pd.read_csv(latest_file, dtype={'code': str})
-        return df, os.path.basename(latest_file)
+        filename = os.path.basename(latest_file)
 
-    chunk_files = glob.glob("data/partial/scanner_output*chunk*.csv")
-    
-    if chunk_files:
-        df_list = []
-        for f in sorted(chunk_files):
-            try:
-                sub_df = pd.read_csv(f, dtype={'code': str})
-                df_list.append(sub_df)
-            except:
-                continue
+    else: # No full files, try chunks
+        chunk_files = glob.glob("data/partial/scanner_output*chunk*.csv")
         
-        if df_list:
-            final_df = pd.concat(df_list, ignore_index=True)
-            if 'code' in final_df.columns:
-                final_df.drop_duplicates(subset=['code'], keep='first', inplace=True)
+        if chunk_files:
+            df_list = []
+            for f in sorted(chunk_files):
+                try:
+                    sub_df = pd.read_csv(f, dtype={'code': str})
+                    df_list.append(sub_df)
+                except:
+                    continue
             
-            return final_df, f"Merged from {len(df_list)} chunks"
+            if df_list:
+                df = pd.concat(df_list, ignore_index=True)
+                if 'code' in df.columns:
+                    df.drop_duplicates(subset=['code'], keep='first', inplace=True)
+                filename = f"Merged from {len(df_list)} chunks"
+            else:
+                return None, None, None
+        else:
+            return None, None, None
 
-    return None, None
+    # 섹터 데이터 로드
+    sector_df = None
+    if os.path.exists("data/sector_rankings.csv"):
+        sector_df = pd.read_csv("data/sector_rankings.csv")
+        
+    return df, sector_df, filename
 
 def get_setup_explanations():
     """셋업 타입 설명"""
@@ -121,7 +130,7 @@ st.title("📊 추세추종 스캐너")
 with st.expander("🎛️ 필터 설정", expanded=False):
     min_score = st.slider("최소 점수", 0, 100, 50)
 
-df, filename = load_data()
+df, sector_df, filename = load_data()
 
 if df is None:
     st.error("❌ 결과 파일이 없습니다.")
@@ -131,6 +140,38 @@ if 'code' in df.columns:
     df['code'] = df['code'].astype(str).str.zfill(6)
 
 st.success(f"✅ 데이터 로드: {filename} (총 {len(df)}개)")
+
+# === 주도 섹터 검증 패널 ===
+if sector_df is not None and 'sector' in df.columns:
+    st.markdown("### 🧭 주도 섹터 검증 (Market Leaders vs Scanner Results)")
+    
+    col_a, col_b = st.columns(2)
+    
+    with col_a:
+        st.info("📊 시장 객관적 주도 섹터 (Top-Down)")
+        top_sectors = sector_df.head(5)[['Sector', 'AvgReturn_3M', 'StockCount']]
+        st.dataframe(
+            top_sectors.style.format({'AvgReturn_3M': '{:.1f}%'}),
+            use_container_width=True,
+            hide_index=True
+        )
+        
+    with col_b:
+        st.success("🎯 내 스캐너 포착 섹터 (Bottom-Up)")
+        # 스캐너 결과에서 섹터 빈도 계산
+        scanner_sectors = df['sector'].value_counts().head(5).reset_index()
+        scanner_sectors.columns = ['Sector', 'Count']
+        
+        # 시장 주도 섹터와 일치 여부 확인
+        market_leaders = sector_df.head(5)['Sector'].tolist()
+        scanner_sectors['IsLeader'] = scanner_sectors['Sector'].apply(
+            lambda x: "✅ (일치)" if x in market_leaders else "-"
+        )
+        
+        st.dataframe(scanner_sectors, use_container_width=True, hide_index=True)
+        
+    st.markdown("---")
+
 
 if 'total_score' in df.columns:
     df = df.sort_values(by='total_score', ascending=False).reset_index(drop=True)
@@ -157,10 +198,12 @@ with st.popover("ℹ️ 점수 구성 설명", use_container_width=True):
 st.caption("👆 행 클릭 → 상세 분석 | ℹ️ 터치 → 점수 설명")
 
 # 표시할 컬럼 (새 점수 체계)
-display_cols = ['code', 'name', 'close', 'total_score', 'setup', 'trend_score', 'pattern_score', 'volume_score', 'supply_score']
+display_cols = ['code', 'name', 'sector', 'close', 'total_score', 'setup', 'trend_score', 'pattern_score', 'volume_score', 'supply_score']
 display_cols = [col for col in display_cols if col in filtered_df.columns]
 
 # 레거시 컬럼 대체
+if 'sector' not in filtered_df.columns:
+    filtered_df['sector'] = '-'
 if 'pattern_score' not in filtered_df.columns and 'trigger_score' in filtered_df.columns:
     filtered_df['pattern_score'] = filtered_df['trigger_score']
 if 'volume_score' not in filtered_df.columns and 'liq_score' in filtered_df.columns:
@@ -178,6 +221,7 @@ rename_map = {
     '순위': '순위',
     'code': '코드',
     'name': '종목명',
+    'sector': '업종',
     'close': '현재가',
     'total_score': '총점',
     'setup': '셋업',
@@ -347,7 +391,7 @@ if selected_code:
                 # 현재가 가져오기
                 current_price = chart_df['Close'].iloc[-1]
                 
-                # 캔들스틱
+                # 캔들스틱 (현재가 표시)
                 fig.add_trace(
                     go.Candlestick(
                         x=chart_df.index,
@@ -364,29 +408,33 @@ if selected_code:
                     row=1, col=1
                 )
                 
-                # 이동평균선
+                # 이동평균선 (마지막 값 표시)
+                ma20_val = chart_df['MA20'].iloc[-1]
                 fig.add_trace(
                     go.Scatter(x=chart_df.index, y=chart_df['MA20'],
-                              mode='lines', name='MA20',
+                              mode='lines', name=f'MA20 ({ma20_val:,.0f})',
                               line=dict(color='orange', width=1.5)),
                     row=1, col=1
                 )
+                
+                ma60_val = chart_df['MA60'].iloc[-1]
                 fig.add_trace(
                     go.Scatter(x=chart_df.index, y=chart_df['MA60'],
-                              mode='lines', name='MA60',
+                              mode='lines', name=f'MA60 ({ma60_val:,.0f})',
                               line=dict(color='purple', width=1.5)),
                     row=1, col=1
                 )
                 
-                # 볼린저밴드 상단
+                # 볼린저밴드 상단 (마지막 값 표시)
+                bb_up_val = chart_df['BB_Upper'].iloc[-1]
                 fig.add_trace(
                     go.Scatter(x=chart_df.index, y=chart_df['BB_Upper'],
-                              mode='lines', name='BB상단',
+                              mode='lines', name=f'BB상단 ({bb_up_val:,.0f})',
                               line=dict(color='gray', width=1, dash='dot')),
                     row=1, col=1
                 )
                 
-                # 손절가 라인 (범례에 표시되도록 Scatter로 구현)
+                # 손절가 라인
                 if 'stop' in row and pd.notna(row['stop']):
                     stop_price = row['stop']
                     fig.add_trace(
@@ -410,6 +458,47 @@ if selected_code:
                           name='거래량', marker_color=colors, showlegend=False),
                     row=2, col=1
                 )
+
+                # 캔들 패턴 및 거래량 급등 주석 추가 (최근 60일)
+                try:
+                    recent_df = chart_df.iloc[-60:] if len(chart_df) > 60 else chart_df
+                    vol_ma20 = recent_df['Volume'].rolling(20).mean()
+                    
+                    for date in recent_df.index:
+                        # 1. 대량거래 (평균 대비 3배 이상 + 양봉)
+                        vol_val = recent_df.loc[date, 'Volume']
+                        ma_val = vol_ma20.loc[date]
+                        
+                        if pd.notna(ma_val) and ma_val > 0 and vol_val >= ma_val * 3:
+                            if recent_df.loc[date, 'Close'] >= recent_df.loc[date, 'Open']:
+                                fig.add_annotation(
+                                    x=date,
+                                    y=recent_df.loc[date, 'High'],
+                                    text="⚡대량",
+                                    showarrow=True,
+                                    arrowhead=1,
+                                    yshift=10,
+                                    font=dict(color="red", size=9),
+                                    row=1, col=1
+                                )
+                        
+                        # 2. 장대양봉 (5% 이상 상승)
+                        open_p = recent_df.loc[date, 'Open']
+                        close_p = recent_df.loc[date, 'Close']
+                        if open_p > 0 and (close_p - open_p) / open_p >= 0.05:
+                            fig.add_annotation(
+                                x=date,
+                                y=recent_df.loc[date, 'Low'],
+                                text="🔥장대",
+                                showarrow=True,
+                                arrowhead=1,
+                                yshift=-20,
+                                flow="up",
+                                font=dict(color="red", size=9),
+                                row=1, col=1
+                            )
+                except Exception as e:
+                    print(f"Annotation error: {e}")
                 
                 # 레이아웃
                 fig.update_layout(
