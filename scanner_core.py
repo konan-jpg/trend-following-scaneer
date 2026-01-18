@@ -57,7 +57,10 @@ def find_climax_bar(df, vol_col="Volume", mult=5.0):
     return climax_high_ffill, climax_low_ffill, is_climax
 
 def detect_volume_dryup(df, cfg):
-    """거래량 건조 감지 (매집 신호)"""
+    """
+    거래량 건조 감지 (매집 신호)
+    하락/횡보 중 거래량이 평균 대비 매우 낮은 날이 연속될 때
+    """
     vol = df["Volume"]
     close = df["Close"]
     
@@ -68,8 +71,10 @@ def detect_volume_dryup(df, cfg):
     vol_avg20 = vol.rolling(20).mean()
     is_dryup = vol < (threshold * vol_avg20)
     
+    # 최근 N일 중 건조일 수
     dryup_count = is_dryup.rolling(lookback).sum()
     
+    # 하락일에 거래량 감소 패턴 (매집 특성)
     is_down = close < close.shift(1)
     down_dryup = (is_down & is_dryup).rolling(lookback).sum()
     
@@ -81,17 +86,25 @@ def detect_volume_dryup(df, cfg):
     }
 
 def detect_rebreakout(df, sig, lookback=60):
-    """재돌파 패턴 감지"""
+    """
+    재돌파 패턴 감지
+    - 60일 내 BB 60-2 돌파 이력 + 현재 20일선 근접 + 오늘 BB 60-2 돌파
+    """
     close = df["Close"]
     upper = sig["upper"]
     
+    # 60일 내 BB 상단 돌파 이력
     past_breakout = (close > upper).rolling(lookback).max().fillna(0).astype(bool)
     
+    # 현재 20일선 근접 (±3%)
     ma20 = close.rolling(20).mean()
     near_ma20 = (close / ma20 - 1).abs() <= 0.03
     
+    # 오늘 BB 60-2 상단 돌파
     today_breakout = close > upper
     
+    # 재돌파 패턴 (이전 돌파 + 20일선 근접 후 + 오늘 돌파)
+    # 조건: 이전에 돌파한 적 있고, 최근 눌림 후 다시 돌파
     rebreakout = past_breakout.shift(1) & today_breakout
     
     return {
@@ -103,7 +116,7 @@ def detect_rebreakout(df, sig, lookback=60):
 
 def calculate_signals(df, cfg):
     """기술적 지표 및 신호 계산"""
-    if df is None or len(df) < 200:
+    if df is None or len(df) < 60:
         return None
 
     close = df["Close"]
@@ -130,12 +143,15 @@ def calculate_signals(df, cfg):
     setup_a = squeeze & breakout_60 & vol_confirm & adx_ok
     setup_b = (climax_high.notna()) & (close > climax_high) & vol_confirm
     
+    # MA20 돌파 + 거래량 확인 = Setup C
     ma20 = close.rolling(20).mean()
     ma20_crossover = (close > ma20) & (close.shift(1) <= ma20.shift(1))
     setup_c = ma20_crossover & vol_confirm & adx_ok
     
+    # 거래량 건조 감지
     dryup_info = detect_volume_dryup(df, cfg)
     
+    # 재돌파 패턴 감지
     sig_base = {
         "upper": upper,
         "lower": lower,
@@ -161,8 +177,15 @@ def calculate_signals(df, cfg):
         **rebreakout_info,
     }
 
-def score_stock(df, sig, cfg, mktcap=None, investor_data=None):
-    """종합 점수 계산 (100점 만점)"""
+def score_stock(df, sig, cfg, mktcap=None, investor_data=None, rs_3m=0, rs_6m=0):
+    """
+    종합 점수 계산 (100점 만점)
+    - 추세 점수: 25점
+    - 패턴/타이밍 점수: 30점
+    - 거래량 점수: 20점
+    - 수급 점수: 15점
+    - 리스크 점수: 10점
+    """
     if sig is None:
         return None
 
@@ -170,6 +193,7 @@ def score_stock(df, sig, cfg, mktcap=None, investor_data=None):
     close = float(df.loc[last, "Close"])
     mas = {p: float(df["Close"].rolling(p).mean().loc[last]) for p in cfg["trend"]["ma_periods"]}
     
+    # 가중치 로드
     weights = cfg.get("scoring", {})
     trend_w = weights.get("trend_weight", 25)
     pattern_w = weights.get("pattern_weight", 30)
@@ -177,7 +201,7 @@ def score_stock(df, sig, cfg, mktcap=None, investor_data=None):
     supply_w = weights.get("supply_weight", 15)
     risk_w = weights.get("risk_weight", 10)
     
-    # 1. 추세 점수 (25점)
+    # ===== 1. 추세 점수 (25점) =====
     trend_score = 0
     if close > mas[20]:  trend_score += 5
     if close > mas[50]:  trend_score += 5
@@ -193,46 +217,60 @@ def score_stock(df, sig, cfg, mktcap=None, investor_data=None):
     
     trend_score = min(trend_score, trend_w)
     
-    # 2. 패턴 점수 (30점)
+    # ===== 2. 패턴/타이밍 점수 (30점) =====
     pattern_score = 0
     
+    # 재돌파 패턴 (가장 높은 점수)
     if bool(sig.get("rebreakout", pd.Series([False])).loc[last]):
-        pattern_score += 15
+        pattern_score += 15  # 재돌파는 최고 신호
     
-    if bool(sig["setup_b"].loc[last]):
+    # Setup별 점수
+    if bool(sig["setup_b"].loc[last]):  # 기준봉 돌파
         pattern_score += 10
-    elif bool(sig["setup_a"].loc[last]):
+    elif bool(sig["setup_a"].loc[last]):  # 스퀴즈 돌파
         pattern_score += 8
-    elif bool(sig.get("setup_c", pd.Series([False])).loc[last]):
+    elif bool(sig.get("setup_c", pd.Series([False])).loc[last]):  # MA20 돌파
         pattern_score += 5
     
+    # 스퀴즈 상태 (변동성 수축)
     if bool(sig["squeeze"].loc[last]):
         pattern_score += 5
     
+    # RS weighting (optional) – add points if RS >= 80
+    rs_cfg = weights.get('rs_weight', {})
+    if rs_3m >= 80:
+        pattern_score += rs_cfg.get('rs3m_weight', 0)
+    if rs_6m >= 80:
+        pattern_score += rs_cfg.get('rs6m_weight', 0)
+    # Ensure pattern_score does not exceed its weight
     pattern_score = min(pattern_score, pattern_w)
     
-    # 3. 거래량 점수 (20점)
+    # ===== 3. 거래량 점수 (20점) =====
     volume_score = 0
     
+    # 거래량 확인 (돌파 시)
     if bool(sig["vol_confirm"].loc[last]):
         volume_score += 8
     
+    # 거래량 건조 (매집 신호)
     dryup_count = float(sig.get("dryup_count", pd.Series([0])).loc[last])
     if dryup_count >= 5:
         volume_score += 7
     elif dryup_count >= 3:
         volume_score += 5
     
+    # 하락 시 거래량 감소 패턴 (강한 매집)
     down_dryup = float(sig.get("down_dryup_count", pd.Series([0])).loc[last])
     if down_dryup >= 3:
         volume_score += 5
     
     volume_score = min(volume_score, volume_w)
     
-    # 4. 수급 점수 (15점)
+    # ===== 4. 수급 점수 (15점) =====
     supply_score = 0
     
     if investor_data:
+        # 외국인 연속 매수
         foreign_consec = investor_data.get("foreign_consecutive_buy", 0)
         if foreign_consec >= 5:
             supply_score += 8
@@ -241,29 +279,38 @@ def score_stock(df, sig, cfg, mktcap=None, investor_data=None):
         elif foreign_consec >= 1:
             supply_score += 2
         
-        if investor_data.get("inst_net_buy_5d", 0) > 0:
+        # 기관 순매수
+        inst_net = investor_data.get("inst_net_buy_5d", 0)
+        if inst_net > 0:
             supply_score += 4
-        if investor_data.get("foreign_net_buy_5d", 0) > 0:
+        
+        # 외국인 순매수
+        foreign_net = investor_data.get("foreign_net_buy_5d", 0)
+        if foreign_net > 0:
             supply_score += 3
     
     supply_score = min(supply_score, supply_w)
     
-    # 5. 리스크 점수 (10점)
-    risk_score = risk_w
+    # ===== 5. 리스크 점수 (10점, 패널티 방식) =====
+    risk_score = risk_w  # 시작은 만점
     
+    # 손절가 계산
     if bool(sig["setup_b"].loc[last]) and pd.notna(sig["climax_low"].loc[last]):
         stop = float(sig["climax_low"].loc[last])
     else:
         stop = float(df["Low"].tail(10).min())
     
     if stop <= 0:
-        return None
+        stop = close * 0.92  # 기본 손절가 설정 (8%)
     
     risk_pct = (close - stop) / close
     
+    # 리스크가 너무 크면 기본값 사용
     if risk_pct <= 0 or risk_pct > 0.15:
-        return None
+        risk_pct = 0.08  # 기본 리스크
+        stop = close * 0.92
     
+    # 리스크가 클수록 감점
     if risk_pct > 0.10:
         risk_score -= 5
     elif risk_pct > 0.08:
@@ -273,10 +320,12 @@ def score_stock(df, sig, cfg, mktcap=None, investor_data=None):
     
     risk_score = max(0, risk_score)
     
+    # ===== 총점 계산 =====
     total_score = trend_score + pattern_score + volume_score + supply_score + risk_score
     
+    # 셋업 타입 결정
     if bool(sig.get("rebreakout", pd.Series([False])).loc[last]):
-        setup = "R"
+        setup = "R"  # 재돌파
     elif bool(sig["setup_b"].loc[last]):
         setup = "B"
     elif bool(sig["setup_a"].loc[last]):
@@ -286,10 +335,10 @@ def score_stock(df, sig, cfg, mktcap=None, investor_data=None):
     else:
         setup = "-"
     
+    # 유동성 필터 (최소 거래대금) - 점수에만 반영, 제외하지 않음
     adv20 = float((df["Close"] * df["Volume"]).rolling(20).mean().loc[last])
     min_adv = cfg.get("universe", {}).get("min_adv20_value", 5_000_000_000)
-    if adv20 < min_adv:
-        return None
+    low_liquidity = adv20 < min_adv
 
     return {
         "close": close,
@@ -308,6 +357,7 @@ def score_stock(df, sig, cfg, mktcap=None, investor_data=None):
         "ma60": mas[50] if 50 in mas else mas.get(60, 0),
         "dryup_count": int(dryup_count),
         "rebreakout": bool(sig.get("rebreakout", pd.Series([False])).loc[last]),
+        # 레거시 호환
         "trigger_score": float(pattern_score),
         "liq_score": float(volume_score),
         "vol_score": float(volume_score),
