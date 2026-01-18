@@ -136,28 +136,34 @@ rename_map = {
 }
 display_df = display_df.rename(columns=rename_map)
 
-# 세션 상태로 선택된 종목 관리
-if 'selected_code' not in st.session_state:
-    st.session_state.selected_code = None
-
-# 표 표시 및 클릭 이벤트
-event = st.dataframe(
+# 표 표시
+st.dataframe(
     display_df,
     use_container_width=True,
     height=400,
-    hide_index=True,
-    on_select="rerun",
-    selection_mode="single-row"
+    hide_index=True
 )
 
-# 선택된 행 처리
-if event.selection and len(event.selection.rows) > 0:
-    selected_idx = event.selection.rows[0]
-    st.session_state.selected_code = filtered_df.iloc[selected_idx]['code']
+# 종목 선택 (selectbox 사용)
+if len(filtered_df) > 0:
+    stock_options = [f"{row['name']} ({row['code']})" for _, row in filtered_df.iterrows()]
+    selected_option = st.selectbox(
+        "📌 상세 분석할 종목 선택",
+        options=["선택하세요..."] + stock_options,
+        index=0
+    )
+    
+    if selected_option != "선택하세요...":
+        # 선택된 종목에서 코드 추출
+        selected_code = selected_option.split("(")[-1].replace(")", "").strip()
+    else:
+        selected_code = None
+else:
+    selected_code = None
 
 # 종목 상세 분석
-if st.session_state.selected_code:
-    matching = df[df['code'] == st.session_state.selected_code]
+if selected_code:
+    matching = df[df['code'] == selected_code]
     
     if len(matching) > 0:
         row = matching.iloc[0]
@@ -330,7 +336,7 @@ if st.session_state.selected_code:
             st.error(f"차트 생성 중 에러: {e}")
 
 else:
-    st.info("👆 위 표에서 종목을 클릭하면 상세 차트가 표시됩니다.")
+    st.info("👆 위 드롭다운에서 종목을 선택하면 상세 차트가 표시됩니다.")
 
 st.markdown("---")
 st.caption(f"업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | {filename}")
