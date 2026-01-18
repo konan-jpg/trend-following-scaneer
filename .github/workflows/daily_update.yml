@@ -2,8 +2,10 @@ name: Daily Scanner Update
 
 on:
   schedule:
+    # 평일 한국시간 16:30 (UTC 07:30)
     - cron: '30 7 * * 1-5'
   workflow_dispatch:
+    # 수동 실행도 가능
 
 jobs:
   scan_chunks:
@@ -38,7 +40,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: partial-chunk-${{ matrix.chunk }}
-          path: data/partial/
+          path: |
+            data/partial/
+            data/sector_rankings.csv
           if-no-files-found: warn
           retention-days: 1
 
@@ -74,5 +78,5 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add data/
-          git diff --staged --quiet || git commit -m "📊 Daily scan $(date +'%Y-%m-%d %H:%M')"
+          git diff --staged --quiet || git commit -m "📊 Daily scan results $(date +'%Y-%m-%d %H:%M')"
           git push
