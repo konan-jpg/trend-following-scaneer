@@ -335,7 +335,11 @@ def score_stock(df, sig, cfg, mktcap=None, investor_data=None, rs_3m=0, rs_6m=0)
         "ma60": mas[50] if 50 in mas else mas.get(60, 0),
         "dryup_count": int(dryup_count),
         "rebreakout": bool(sig.get("rebreakout", pd.Series([False])).loc[last]),
-        # 레거시 호환
+        # Investor Data (Save to CSV for retrieval in Real-time mode)
+        "foreign_consec_buy": investor_data.get("foreign_consecutive_buy", 0) if investor_data else 0,
+        "foreign_net_5d": investor_data.get("foreign_net_buy_5d", 0) if investor_data else 0,
+        "inst_net_5d": investor_data.get("inst_net_buy_5d", 0) if investor_data else 0,
+        # Legacy compatibility
         "trigger_score": float(pattern_score),
         "liq_score": float(volume_score),
         "vol_score": float(volume_score),
