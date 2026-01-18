@@ -126,17 +126,19 @@ def get_score_explanations():
     }
 
 # 메인 앱
-st.title("📊 추세추종 스캐너")
+col_main_t, col_main_r = st.columns([3, 1])
+with col_main_t:
+    st.title("📊 추세추종 스캐너")
+with col_main_r:
+    st.write("") # v-spacer
+    st.write("") # v-spacer
+    if st.button("🔄 데이터/캐시 새로고침", help="스캔된 최신 데이터를 불러오고 화면을 갱신합니다."):
+        st.cache_data.clear()
+        st.rerun()
 
 # 상단 필터
 with st.expander("🎛️ 필터 설정", expanded=False):
-    col_f1, col_f2 = st.columns([3, 1])
-    with col_f1:
-        min_score = st.slider("최소 점수", 0, 100, 50)
-    with col_f2:
-        if st.button("🔄 새로고침"):
-            st.cache_data.clear()
-            st.rerun()
+    min_score = st.slider("최소 점수", 0, 100, 50, key='min_score_slider')
 
 df, sector_df, filename = load_data()
 
@@ -512,54 +514,26 @@ if selected_code:
             else:
                 st.info(f"👀 현재 상태: {best_strategy} ({priority_reason})")
             
-            # 3-Track UI (HTML 렌더링 수정: textwrap.dedent 사용)
+            # 3-Track UI (들여쓰기 없이 작성하여 HTML 렌더링 보장)
             col_sc1, col_sc2, col_sc3 = st.columns(3)
             
             with col_sc1:
-                html_1 = f"""
-                <div style="background-color:rgba(0,255,0,0.1); padding:10px; border-radius:10px; height:100%;">
-                    <strong>📉 눌림목</strong><br>
-                    진입: <strong>{pullback_price:,.0f}원</strong><br>
-                    손절: {pullback_stop:,.0f}원<br>
-                    <span style="font-size:0.8em; color:#666;">리스크: {risk_pullback:.1f}%</span>
-                </div>
-                """
-                st.markdown(textwrap.dedent(html_1), unsafe_allow_html=True)
+                html_1 = f'<div style="background-color:rgba(0,255,0,0.1); padding:10px; border-radius:10px;"><strong>📉 눌림목</strong><br>진입: <strong>{pullback_price:,.0f}원</strong><br>손절: {pullback_stop:,.0f}원<br><span style="font-size:0.8em; color:#666;">리스크: {risk_pullback:.1f}%</span></div>'
+                st.markdown(html_1, unsafe_allow_html=True)
                 
             with col_sc2:
-                html_2 = f"""
-                <div style="background-color:rgba(255,165,0,0.1); padding:10px; border-radius:10px; height:100%;">
-                    <strong>🚀 추세 돌파</strong><br>
-                    진입: <strong>{breakout_price:,.0f}원</strong><br>
-                    손절: {breakout_stop:,.0f}원<br>
-                    <span style="font-size:0.8em; color:#666;">리스크: {risk_breakout:.1f}%</span>
-                </div>
-                """
-                st.markdown(textwrap.dedent(html_2), unsafe_allow_html=True)
+                html_2 = f'<div style="background-color:rgba(255,165,0,0.1); padding:10px; border-radius:10px;"><strong>🚀 추세 돌파</strong><br>진입: <strong>{breakout_price:,.0f}원</strong><br>손절: {breakout_stop:,.0f}원<br><span style="font-size:0.8em; color:#666;">리스크: {risk_breakout:.1f}%</span></div>'
+                st.markdown(html_2, unsafe_allow_html=True)
                 
             with col_sc3:
                 bg_color = "rgba(138,43,226,0.1)" if oneil_price > 0 else "rgba(128,128,128,0.1)"
                 if oneil_price > 0:
-                    content = f"""
-                    진입: <strong>{oneil_price:,.0f}원</strong><br>
-                    손절: {oneil_stop:,.0f}원<br>
-                    <span style="font-size:0.8em; color:#666;">리스크: {oneil_risk:.1f}%</span>
-                    """
+                    content = f'진입: <strong>{oneil_price:,.0f}원</strong><br>손절: {oneil_stop:,.0f}원<br><span style="font-size:0.8em; color:#666;">리스크: {oneil_risk:.1f}%</span>'
                 else:
-                    content = f"""
-                    <span style="color:gray;">{oneil_msg}</span><br>
-                    <span style="font-size:0.8em;">패턴이 나타나면 추천됩니다</span>
-                    """
+                    content = f'<span style="color:gray;">{oneil_msg}</span><br><span style="font-size:0.8em;">패턴이 나타나면 추천됩니다</span>'
                 
-                # HTML 렌더링 문제 해결을 위해 dedent 적용
-                html_3 = f"""
-                <div style="background-color:{bg_color}; padding:10px; border-radius:10px; height:100%;">
-                    <strong>💎 오닐/미너비니</strong><br>
-                    <span style="font-size:0.8em; color:#999;">({oneil_setup_name})</span><br>
-                    {content}
-                </div>
-                """
-                st.markdown(textwrap.dedent(html_3), unsafe_allow_html=True)
+                html_3 = f'<div style="background-color:{bg_color}; padding:10px; border-radius:10px;"><strong>💎 오닐/미너비니</strong><br><span style="font-size:0.8em; color:#999;">({oneil_setup_name})</span><br>{content}</div>'
+                st.markdown(html_3, unsafe_allow_html=True)
 
             st.caption(f"⚠️ 기본 손절가: {base_stop:,.0f}원 | 전략별 손절가는 진입가 기준으로 동적 계산됩니다.")
         except Exception as e:
