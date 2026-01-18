@@ -97,8 +97,8 @@ def get_score_explanations():
         }
     }
 
-# 메인 앱
-st.title("🔍 추세추종 스캐너 (일봉/장마감)")
+# 메인 앱 - 제목 간소화 (모바일 1줄)
+st.title("� 추세추종 스캐너")
 
 # 상단 필터 (모바일 친화적)
 with st.expander("🎛️ 필터 설정", expanded=False):
@@ -300,12 +300,12 @@ if selected_code:
                 avg_body = body.rolling(20).mean()
                 chart_df['Big_Candle'] = body > avg_body * 1.5
                 
-                # Subplot 생성 (가격 + 거래량) - 거래량 타이틀 제거
+                # Subplot 생성 (가격 + 거래량) - 타이틀 모두 제거
                 fig = make_subplots(
                     rows=2, cols=1,
                     row_heights=[0.75, 0.25],
                     vertical_spacing=0.03,
-                    subplot_titles=(f"{row['name']} ({row['code']})", "")
+                    subplot_titles=("", "")
                 )
                 
                 # 캔들스틱 색상: 상승=빨간색, 하락=파란색
@@ -329,20 +329,20 @@ if selected_code:
                 fig.add_trace(
                     go.Scatter(x=chart_df.index, y=chart_df['MA20'],
                               mode='lines', name='MA20',
-                              line=dict(color='orange', width=1)),
+                              line=dict(color='orange', width=1.5)),
                     row=1, col=1
                 )
                 fig.add_trace(
                     go.Scatter(x=chart_df.index, y=chart_df['MA60'],
                               mode='lines', name='MA60',
-                              line=dict(color='purple', width=1)),
+                              line=dict(color='purple', width=1.5)),
                     row=1, col=1
                 )
                 
                 # 볼린저밴드 상단
                 fig.add_trace(
                     go.Scatter(x=chart_df.index, y=chart_df['BB_Upper'],
-                              mode='lines', name='BB 상단',
+                              mode='lines', name='BB상단',
                               line=dict(color='gray', width=1, dash='dot')),
                     row=1, col=1
                 )
@@ -378,9 +378,9 @@ if selected_code:
                     row=2, col=1
                 )
                 
-                # 레이아웃 (모바일 최적화)
+                # 레이아웃 (모바일 최적화 - 범례 넓게)
                 fig.update_layout(
-                    height=600,
+                    height=550,
                     xaxis_rangeslider_visible=False,
                     hovermode='x unified',
                     showlegend=True,
@@ -390,14 +390,16 @@ if selected_code:
                         y=1.02,
                         xanchor="center",
                         x=0.5,
-                        font=dict(size=11)
+                        font=dict(size=12),
+                        itemsizing='constant',
+                        itemwidth=50
                     ),
-                    margin=dict(l=10, r=10, t=50, b=10)
+                    margin=dict(l=5, r=5, t=40, b=5)
                 )
                 
                 # x축 날짜만 표시 (거래량 밑에만)
                 fig.update_xaxes(showticklabels=False, row=1, col=1)
-                fig.update_xaxes(showticklabels=True, row=2, col=1)
+                fig.update_xaxes(showticklabels=True, row=2, col=1, tickfont=dict(size=10))
                 fig.update_yaxes(title_text="", row=1, col=1)
                 fig.update_yaxes(title_text="", row=2, col=1)
                 
@@ -414,3 +416,4 @@ else:
 
 st.markdown("---")
 st.caption(f"업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | {filename}")
+
