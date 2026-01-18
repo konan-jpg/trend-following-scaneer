@@ -11,7 +11,9 @@ import FinanceDataReader as fdr
 import yaml
 from scanner_core import calculate_signals, score_stock
 from image_analysis import analyze_chart_image
+
 st.set_page_config(layout="wide", page_title="추세추종 스캐너")
+
 # ---------------------------------------------------
 # Helper Functions
 # ---------------------------------------------------
@@ -23,6 +25,7 @@ def load_config():
         with open(cfg_path, "r", encoding="utf-8") as f:
             return yaml.safe_load(f)
     return {}
+
 @st.cache_data(ttl=300)
 def load_data():
     """Load scanner result and sector ranking data"""
@@ -64,6 +67,7 @@ def load_data():
     if os.path.exists("data/sector_rankings.csv"):
         sector_df = pd.read_csv("data/sector_rankings.csv")
     return df, sector_df, filename
+
 @st.cache_data
 def get_krx_codes():
     """Return DataFrame with KRX stock codes and names"""
@@ -80,12 +84,14 @@ def get_krx_codes():
                 return df_static[['Code', 'Name']]
         except Exception:
             pass
+
         # 2. Fallback using scanner data
         df_scan, _, _ = load_data()
         if df_scan is not None and not df_scan.empty:
             fallback = df_scan[['code', 'name']].rename(columns={'code': 'Code', 'name': 'Name'})
             return fallback.drop_duplicates()
         return pd.DataFrame({'Code':[], 'Name':[]})
+
 def get_setup_explanations():
     return {
         'R': "🔥 재돌파 패턴 - 60일 내 BB 60-2 돌파 후 눌림 → 재돌파 (가장 강력)",
@@ -94,6 +100,7 @@ def get_setup_explanations():
         'C': "20일 이평선 돌파 + 거래량 증가 + ADX 상승 추세",
         '-': "기본 추세 및 유동성 기준만 충족",
     }
+
 def get_score_explanations():
     return {
         'trend_score': {
@@ -148,6 +155,7 @@ def get_score_explanations():
             ]
         }
     }
+
 # ---------------------------------------------------
 # UI Rendering for a single stock (used by all modes)
 # ---------------------------------------------------
@@ -221,6 +229,7 @@ def display_stock_report(row, sector_df=None, rs_3m=None, rs_6m=None):
     if rs_3m is not None and rs_3m >= 80: rs3_bonus = 5
     if rs_6m is not None and rs_6m >= 80: rs6_bonus = 5
     rs_total_bonus = rs3_bonus + rs6_bonus
+
     score_info = get_score_explanations()
     score_data = {
         '추세': row.get('trend_score', 0),
@@ -234,18 +243,19 @@ def display_stock_report(row, sector_df=None, rs_3m=None, rs_6m=None):
     # Here we just show the metric clearly
     
     max_scores = [25, 30, 20, 15, 10]
-    cols = st.columns(5) # Back to 5 columns to match Total Score components
+    cols = st.columns(6) # Increased columns to add RS
     
     with cols[0]: st.metric("추세", f"{score_data['추세']:.0f}/25")
-    
-    # Pattern Score specialized display
-    pat_str = f"{score_data['패턴']:.0f}/30"
-    with cols[1]: 
-        st.metric("패턴 (RS포함)", pat_str, delta=f"+RS {rs_total_bonus}" if rs_total_bonus > 0 else None)
-        
+    with cols[1]: st.metric("패턴\n(RS포함)", f"{score_data['패턴']:.0f}/30")
     with cols[2]: st.metric("거래량", f"{score_data['거래량']:.0f}/20")
     with cols[3]: st.metric("수급", f"{score_data['수급']:.0f}/15")
     with cols[4]: st.metric("리스크", f"{score_data['리스크']:.0f}/10")
+    with cols[5]: 
+        if rs_total_bonus > 0:
+            st.metric("✅RS가산", f"+{rs_total_bonus}")
+        else:
+            st.metric("RS가산", "0")
+
     for key, info in score_info.items():
         with st.expander(f"🔹 {info['name']}", expanded=False):
             st.markdown(f"**{info['description']}**")
@@ -479,15 +489,18 @@ def display_stock_report(row, sector_df=None, rs_3m=None, rs_6m=None):
             st.plotly_chart(fig, use_container_width=True)
     except Exception as e:
         st.warning(f"차트 생성 오류: {e}")
+
 # ---------------------------------------------------
 # Main App UI
 # ---------------------------------------------------
 st.sidebar.title("메뉴")
 mode = st.sidebar.radio("모드 선택", ["🔍 실시간 종목 진단", "📊 당일 시장 스캐너", "🖼️ 차트 이미지 분석"])
+
 # Refresh button (common)
 if st.sidebar.button("🔄 데이터/캐시 새로고침", help="스캔된 최신 데이터를 불러오고 화면을 갱신합니다."):
     st.cache_data.clear()
     st.rerun()
+
 if mode == "📊 당일 시장 스캐너":
     # 기존 스캐너 UI (필터, 테이블, 선택)
     min_score = st.slider("최소 점수", 0, 100, 50, key='min_score_slider')
@@ -554,6 +567,7 @@ if mode == "📊 당일 시장 스캐너":
     if selected_code:
         row = df[df['code'] == selected_code].iloc[0]
         display_stock_report(row, sector_df)
+
 elif mode == "🔍 실시간 종목 진단":
     st.subheader("🔍 실시간 종목 진단")
     stock_df = get_krx_codes()
@@ -562,31 +576,46 @@ elif mode == "🔍 실시간 종목 진단":
     # RS inputs
     rs_3m = st.number_input("3개월 RS (0-100)", min_value=0, max_value=100, value=0, step=1)
     rs_6m = st.number_input("6개월 RS (0-100)", min_value=0, max_value=100, value=0, step=1)
-    # fetch recent data (60 days)
+    
+    # 스캔 결과 CSV에서 수급 데이터 가져오기
+    investor_data = {}
+    df_scan, sector_df_cached, _ = load_data()
+    if df_scan is not None and not df_scan.empty:
+        df_scan['code'] = df_scan['code'].astype(str).str.zfill(6)
+        scan_row = df_scan[df_scan['code'] == str(selected_code).zfill(6)]
+        if not scan_row.empty:
+            scan_row = scan_row.iloc[0]
+            investor_data = {
+                'foreign_consecutive_buy': scan_row.get('foreign_consec_buy', 0),
+                'inst_net_buy_5d': scan_row.get('inst_net_5d', 0),
+                'foreign_net_buy_5d': scan_row.get('foreign_net_5d', 0),
+            }
+    
+    # fetch recent data
     end_date = datetime.now()
     start_date = end_date - timedelta(days=365)
     df_stock = fdr.DataReader(selected_code, start_date, end_date)
     if df_stock is not None and len(df_stock) > 0:
         cfg = load_config()
         sig = calculate_signals(df_stock, cfg)
-        # RS SCORE LOGIC FIX: Pass RS values to score_stock
-        result = score_stock(df_stock, sig, cfg, rs_3m=rs_3m, rs_6m=rs_6m)
-        
+        # investor_data 전달하여 수급 점수 계산
+        result = score_stock(df_stock, sig, cfg, rs_3m=rs_3m, rs_6m=rs_6m, investor_data=investor_data if investor_data else None)
         if result:
             row = pd.Series(result)
             row['name'] = selected_name
             row['code'] = selected_code
             row['sector'] = ''
-            
-            # Explicitly add RS info to row for display if not present
-            if 'rs_3m' not in row: row['rs_3m'] = rs_3m
-            if 'rs_6m' not in row: row['rs_6m'] = rs_6m
-            
-            display_stock_report(row, sector_df=None, rs_3m=rs_3m, rs_6m=rs_6m)
+            # 수급 데이터를 row에 추가 (display_stock_report에서 표시용)
+            if investor_data:
+                row['foreign_consec_buy'] = investor_data.get('foreign_consecutive_buy', 0)
+                row['foreign_net_5d'] = investor_data.get('foreign_net_buy_5d', 0)
+                row['inst_net_5d'] = investor_data.get('inst_net_buy_5d', 0)
+            display_stock_report(row, sector_df=sector_df_cached, rs_3m=rs_3m, rs_6m=rs_6m)
         else:
             st.error("점수 계산에 실패했습니다.")
     else:
         st.error("데이터를 불러올 수 없습니다.")
+
 elif mode == "🖼️ 차트 이미지 분석":
     st.subheader("🖼️ 차트 이미지 분석 (베타)")
     uploaded = st.file_uploader("차트 이미지 업로드", type=["png","jpg","jpeg"])
@@ -612,7 +641,7 @@ elif mode == "🖼️ 차트 이미지 분석":
                     st.markdown("**🧩 감지된 패턴**")
                     for pat in analysis_result.get("patterns", []):
                         st.success(f"{pat['name']} (신뢰도: {pat['confidence']*100:.0f}%)")
-        
+
         # After image, still need stock selection & RS
         stock_df = get_krx_codes()
         selected_name = st.selectbox("종목명 선택 (오타 자동완성)", stock_df['Name'], key='img_name')
@@ -632,6 +661,7 @@ elif mode == "🖼️ 차트 이미지 분석":
                      'inst_net_buy_5d': scan_row.get('inst_net_5d', 0),
                      'foreign_net_buy_5d': scan_row.get('foreign_net_5d', 0),
                  }
+
         if df_stock is not None and len(df_stock) > 0:
             cfg = load_config()
             sig = calculate_signals(df_stock, cfg)
@@ -647,18 +677,18 @@ elif mode == "🖼️ 차트 이미지 분석":
                 # Explicitly add RS info to row for display if not present
                 if 'rs_3m' not in row: row['rs_3m'] = rs_3m
                 if 'rs_6m' not in row: row['rs_6m'] = rs_6m
-                
+
                 # Inject investor data for display (Recent Supply Status section)
-                # Look for standardized keys from scanner_core first, then fallback to internal dict keys
                 if 'foreign_consec_buy' not in row and 'foreign_consecutive_buy' in investor_data:
                     row['foreign_consec_buy'] = investor_data['foreign_consecutive_buy']
-                if 'foreign_net_5d' not in row and 'foreign_net_buy_5d' in investor_data:
-                    row['foreign_net_5d'] = investor_data['foreign_net_buy_5d']
                 if 'inst_net_5d' not in row and 'inst_net_buy_5d' in investor_data:
                     row['inst_net_5d'] = investor_data['inst_net_buy_5d']
+                if 'foreign_net_5d' not in row and 'foreign_net_buy_5d' in investor_data:
+                    row['foreign_net_5d'] = investor_data['foreign_net_buy_5d']
                 
                 display_stock_report(row, sector_df=None, rs_3m=rs_3m, rs_6m=rs_6m)
             else:
                 st.error("점수 계산에 실패했습니다.")
         else:
             st.error("데이터를 불러올 수 없습니다.")
+
