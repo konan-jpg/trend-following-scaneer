@@ -3,6 +3,7 @@ import streamlit as st
 import pandas as pd
 import glob
 import os
+import json
 import requests
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
@@ -253,9 +254,17 @@ def display_stock_report(row, sector_df=None, rs_3m=None, rs_6m=None):
     c5.metric("리스크 (10)", f"{row.get('risk_score',10):.0f}")
 
     # 상세 판정 내용 (동적 생성)
-    if 'score_details' in row and isinstance(row['score_details'], dict):
+    # score_details가 문자열(JSON)인 경우 파싱
+    score_details = row.get('score_details', None)
+    if isinstance(score_details, str):
+        try:
+            score_details = json.loads(score_details)
+        except:
+            score_details = None
+    
+    if score_details and isinstance(score_details, dict):
         with st.expander("📝 상세 점수 획득 내역 보기", expanded=True):
-            details = row['score_details']
+            details = score_details
             cols = st.columns(3)
             # 추세
             with cols[0]:
