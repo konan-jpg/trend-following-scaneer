@@ -30,20 +30,28 @@ def get_stock_list(cfg):
             stocks = stocks[stocks["Marcap"] >= cfg["universe"]["min_mktcap_krw"]]
             stocks = stocks.sort_values("Marcap", ascending=False)
         
-        # Sector 정보가 없거나 모두 NA면 KRX에서 가져오기 시도
-        if "Sector" not in stocks.columns or stocks["Sector"].isna().all():
+        # Sector 정보 확인 및 매핑 (안전하게 체크)
+        has_valid_sector = False
+        if "Sector" in stocks.columns:
+            if stocks["Sector"].notna().any():
+                has_valid_sector = True
+        
+        if not has_valid_sector:
             try:
-                # KRX 전체 종목 정보 (Sector 포함)
+                # KRX 전체 종목 정보에서 Sector 가져오기
                 krx_full = fdr.StockListing("KRX")
                 if krx_full is not None and "Sector" in krx_full.columns:
-                    sector_map = dict(zip(krx_full["Code"], krx_full["Sector"]))
-                    stocks["Sector"] = stocks["Code"].map(sector_map)
+                    sector_map = dict(zip(krx_full["Code"].astype(str), krx_full["Sector"]))
+                    stocks["Sector"] = stocks["Code"].astype(str).map(sector_map)
                     print(f"[INFO] KRX 섹터 정보 매핑 완료: {stocks['Sector'].notna().sum()}개")
             except Exception as e:
                 print(f"[WARN] 섹터 정보 가져오기 실패: {e}")
         
-        # 그래도 없으면 기타로 설정
-        stocks["Sector"] = stocks["Sector"].fillna("기타")
+        # Sector 컬럼이 없으면 생성, 있으면 NA만 채우기
+        if "Sector" not in stocks.columns:
+            stocks["Sector"] = "기타"
+        else:
+            stocks["Sector"] = stocks["Sector"].fillna("기타")
         
         stocks["Code"] = stocks["Code"].astype(str).str.zfill(6)
         os.makedirs("data", exist_ok=True)
