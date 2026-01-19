@@ -202,7 +202,7 @@ def score_stock(df, sig, cfg, mktcap=None, investor_data=None, rs_3m=0, rs_6m=0)
     
     # A. Door Knock (10점): 60BB 상단 95~102%
     door_low = bb_upper * 0.95
-    door_high = bb_upper * 1.02
+    door_high = bb_upper * 1.05
     if door_low <= close <= door_high:
         location_score += 10
         tags.append("🚪Door")
