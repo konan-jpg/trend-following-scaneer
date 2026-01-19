@@ -5,6 +5,7 @@ GitHub Actions에서 실행되어 수급 데이터를 포함한 스캔 결과를
 """
 import os
 import time
+import json
 import yaml
 import pandas as pd
 import requests
@@ -28,8 +29,22 @@ def get_stock_list(cfg):
         if "Marcap" in stocks.columns:
             stocks = stocks[stocks["Marcap"] >= cfg["universe"]["min_mktcap_krw"]]
             stocks = stocks.sort_values("Marcap", ascending=False)
+        
+        # Sector 정보가 없거나 모두 NA면 KRX에서 가져오기 시도
         if "Sector" not in stocks.columns or stocks["Sector"].isna().all():
-            stocks["Sector"] = "기타"
+            try:
+                # KRX 전체 종목 정보 (Sector 포함)
+                krx_full = fdr.StockListing("KRX")
+                if krx_full is not None and "Sector" in krx_full.columns:
+                    sector_map = dict(zip(krx_full["Code"], krx_full["Sector"]))
+                    stocks["Sector"] = stocks["Code"].map(sector_map)
+                    print(f"[INFO] KRX 섹터 정보 매핑 완료: {stocks['Sector'].notna().sum()}개")
+            except Exception as e:
+                print(f"[WARN] 섹터 정보 가져오기 실패: {e}")
+        
+        # 그래도 없으면 기타로 설정
+        stocks["Sector"] = stocks["Sector"].fillna("기타")
+        
         stocks["Code"] = stocks["Code"].astype(str).str.zfill(6)
         os.makedirs("data", exist_ok=True)
         stocks.to_csv("data/krx_backup.csv", index=False, encoding="utf-8-sig")
@@ -40,6 +55,7 @@ def get_stock_list(cfg):
             return pd.read_csv("data/krx_backup.csv")
         except:
             return pd.DataFrame()
+
 
 
 def get_investor_data(code, days=10, max_retries=3):
@@ -226,6 +242,9 @@ def main():
             sig = calculate_signals(df, cfg)
             scored = score_stock(df, sig, cfg, mktcap=mktcap)
             if scored is None: continue
+            # score_details를 JSON 문자열로 변환
+            if 'score_details' in scored and isinstance(scored['score_details'], dict):
+                scored['score_details'] = json.dumps(scored['score_details'], ensure_ascii=False)
             tech_results.append({"code": code, "name": name, "market": market, "mktcap": mktcap, "sector": sector, **scored})
             time.sleep(0.1)
         except: continue
