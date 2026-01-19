@@ -72,43 +72,59 @@ def load_config():
 @st.cache_data(ttl=300)
 def load_data():
     df, filename = None, None
-    # 1. 병합된 파일 확인
+    
+    # 1. 파일 목록 확인
     merged_files = [f for f in glob.glob("data/scanner_output*.csv") if "chunk" not in f]
-    if merged_files:
-        def extract_date(fn):
-            try: return os.path.basename(fn).replace('.csv', '').split('_')[-1]
-            except: return '0000-00-00'
-        latest_file = max(merged_files, key=extract_date)
+    chunk_files = glob.glob("data/partial/scanner_output*chunk*.csv")
+    
+    # 날짜 추출 헬퍼
+    def get_date_from_filename(fn):
         try:
-            df = pd.read_csv(latest_file, dtype={'code': str})
-            filename = os.path.basename(latest_file)
+            basename = os.path.basename(fn)
+            # scanner_output_YYYY-MM-DD...
+            parts = basename.replace('scanner_output_', '').split('_')
+            date_str = parts[0]
+            # .csv 제거
+            if date_str.endswith('.csv'): date_str = date_str.replace('.csv', '')
+            return date_str
+        except: return '0000-00-00'
+
+    # 최신 날짜 찾기
+    latest_merged_date = '0000-00-00'
+    latest_merged_file = None
+    if merged_files:
+        latest_merged_file = max(merged_files, key=get_date_from_filename)
+        latest_merged_date = get_date_from_filename(latest_merged_file)
+        
+    latest_chunk_date = '0000-00-00'
+    if chunk_files:
+        latest_chunk_file = max(chunk_files, key=get_date_from_filename)
+        latest_chunk_date = get_date_from_filename(latest_chunk_file)
+    
+    # 로딩 로직: 청크가 더 최신이거나 같으면 청크 사용 (방금 수집된 데이터 우선)
+    # 날짜 문자열 비교 (YYYY-MM-DD 형식이므로 문자열 비교 가능)
+    if latest_chunk_date >= latest_merged_date and latest_chunk_date != '0000-00-00':
+        try:
+            target_chunks = [f for f in chunk_files if latest_chunk_date in os.path.basename(f)]
+            if target_chunks:
+                df_list = [pd.read_csv(f, dtype={'code': str}) for f in sorted(target_chunks)]
+                if df_list:
+                    df = pd.concat(df_list, ignore_index=True).drop_duplicates(subset=['code'], keep='first')
+                    filename = f"Merged Chunks ({latest_chunk_date})"
+        except Exception as e:
+            st.error(f"청크 데이터 병합 중 오류: {e}")
+            
+    # 청크 로드 실패했거나 병합 파일이 더 최신인 경우
+    if df is None and latest_merged_file:
+        try:
+            df = pd.read_csv(latest_merged_file, dtype={'code': str})
+            filename = os.path.basename(latest_merged_file)
         except Exception as e:
             st.error(f"파일 로드 오류: {e}")
-    else:
-        # 2. 청크 파일 확인 (병합 파일이 없는 경우)
-        chunk_files = glob.glob("data/partial/scanner_output*chunk*.csv")
-        if chunk_files:
-            try:
-                # 날짜별로 그룹화해서 가장 최신 날짜 찾기
-                file_dates = set()
-                for f in chunk_files:
-                    try: file_dates.add(os.path.basename(f).split('_')[2])
-                    except: pass
-                
-                if file_dates:
-                    latest_date = sorted(list(file_dates))[-1]
-                    target_chunks = [f for f in chunk_files if latest_date in f]
-                    df_list = [pd.read_csv(f, dtype={'code': str}) for f in sorted(target_chunks)]
-                    if df_list:
-                        df = pd.concat(df_list, ignore_index=True).drop_duplicates(subset=['code'], keep='first')
-                        filename = f"Merged Chunks ({latest_date})"
-            except Exception as e:
-                st.error(f"청크 병합 오류: {e}")
 
     sector_df = None
     if os.path.exists("data/sector_rankings.csv"):
-        try:
-            sector_df = pd.read_csv("data/sector_rankings.csv")
+        try: sector_df = pd.read_csv("data/sector_rankings.csv")
         except: pass
         
     return df, sector_df, filename
