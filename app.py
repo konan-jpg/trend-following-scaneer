@@ -453,42 +453,42 @@ if mode == "📊 시장 스캐너":
         
         st.subheader(f"🏆 고득점 종목 Top {len(filtered)}")
         
-    display_cols = ['name', 'sector', 'close', 'total_score', 'setup', 'trend_score', 'pattern_score', 'volume_score', 'supply_score']
-    # 컬럼 존재 여부 확인 후 필터링
-    display_cols = [c for c in display_cols if c in filtered.columns]
-    
-    show_df = filtered[display_cols].rename(columns={
-        'name':'종목명', 'sector':'업종', 'close':'현재가', 
-        'total_score':'총점', 'setup':'셋업', 
-        'trend_score':'추세', 'pattern_score':'위치', 
-        'volume_score':'거래량', 'supply_score':'수급'
-    })
-    
-    # 소수점 제거 포맷팅
-    format_dict = {
-        '현재가': '{:,.0f}',
-        '총점': '{:.0f}',
-        '추세': '{:.0f}',
-        '위치': '{:.0f}',
-        '거래량': '{:.0f}',
-        '수급': '{:.0f}'
-    }
-    
-    # 선택 기능
-    event = st.dataframe(
-        show_df.style.format(format_dict, na_rep="-").background_gradient(subset=['총점'], cmap='Blues'),
-        use_container_width=True, 
-        height=500,
-        hide_index=True,
-        on_select="rerun",
-        selection_mode="single-row"
-    )
-    
-    if event.selection and len(event.selection.rows) > 0:
-        idx = event.selection.rows[0]
-        selected_code = filtered.iloc[idx]['code']
-        row = filtered.iloc[idx]
-        display_stock_report(row, sector_df)
+        display_cols = ['name', 'sector', 'close', 'total_score', 'setup', 'trend_score', 'pattern_score', 'volume_score', 'supply_score']
+        # 컬럼 존재 여부 확인 후 필터링
+        display_cols = [c for c in display_cols if c in filtered.columns]
+        
+        show_df = filtered[display_cols].rename(columns={
+            'name':'종목명', 'sector':'업종', 'close':'현재가', 
+            'total_score':'총점', 'setup':'셋업', 
+            'trend_score':'추세', 'pattern_score':'위치', 
+            'volume_score':'거래량', 'supply_score':'수급'
+        })
+        
+        # 소수점 제거 포맷팅
+        format_dict = {
+            '현재가': '{:,.0f}',
+            '총점': '{:.0f}',
+            '추세': '{:.0f}',
+            '위치': '{:.0f}',
+            '거래량': '{:.0f}',
+            '수급': '{:.0f}'
+        }
+        
+        # 선택 기능
+        event = st.dataframe(
+            show_df.style.format(format_dict, na_rep="-").background_gradient(subset=['총점'], cmap='Blues'),
+            use_container_width=True, 
+            height=500,
+            hide_index=True,
+            on_select="rerun",
+            selection_mode="single-row"
+        )
+        
+        if event.selection and len(event.selection.rows) > 0:
+            idx = event.selection.rows[0]
+            selected_code = filtered.iloc[idx]['code']
+            row = filtered.iloc[idx]
+            display_stock_report(row, sector_df)
 
 elif mode == "🔍 종목 상세 진단":
     st.title("🔍 실시간 종목 상세 진단")
