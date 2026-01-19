@@ -145,22 +145,38 @@ def get_setup_explanations():
 def get_score_explanations():
     return {
         'trend_score': {'name': '추세 (25점)', 'description': '이동평균 정배열 + ADX 강도', 
-                        'components': ['현재가>20선:+5', '현재가>50선:+5', '현재가>200선:+5', '정배열:+5', 'ADX강도:+2~5']},
+                        'components': ['현재가>20선:+5', '현재가>50선:+5', '현재가>200선:+5', '정배열:+5', 'ADX강도:+2-5']},
         'pattern_score': {'name': '위치 (30점)', 'description': '매집 패턴 및 돌파 임박', 
-                          'components': ['Door Knock:+10', 'Squeeze:+10', 'Setup:+3~5', 'RS80+:각+5']},
+                          'components': ['Door Knock:+10', 'Squeeze:+10', 'Setup:+3-5', 'RS80+:+5']},
         'volume_score': {'name': '거래량 (20점)', 'description': '수급의 흔적 (폭발/수축)', 
-                         'components': ['과거폭발:+5', '거래량수축:+3~7', '당일거래량:+3~8']},
+                         'components': ['과거폭발:+5', '거래량수축:+3-7', '당일거래량:+3-8']},
         'supply_score': {'name': '수급 (15점)', 'description': '외국인/기관 매수세', 
                          'components': ['외인연속5일+:+8', '외인연속3일+:+5', '기관순매수:+4', '외인순매수:+3']},
         'risk_score': {'name': '리스크 (10점)', 'description': '손절가와의 거리', 
-                       'components': ['5%이하:10점', '5~8%:-1', '8~10%:-3', '10%이상:-5']}
+                       'components': ['5%이하:10점', '5-8%:-1', '8-10%:-3', '10%이상:-5']}
     }
+
+def get_detail_text(key, val):
+    maps = {
+        'trend_ma20': '현재가 > 20일선', 'trend_ma50': '현재가 > 50일선', 'trend_ma200': '현재가 > 200일선',
+        'trend_align_20_50': '20일 > 50일 정배열', 'trend_align_50_200': '50일 > 200일 정배열',
+        'trend_adx': f'ADX 강한 추세',
+        'pat_door_knock': 'Door Knock 패턴', 'pat_squeeze': 'Squeeze (변동성 축소)',
+        'pat_setup_a': 'Setup A (돌파)', 'pat_setup_b': 'Setup B (눌림목)', 'pat_setup_c': 'Setup C (추세전환)',
+        'pat_rs_3m': '3개월 RS 80 이상', 'pat_rs_6m': '6개월 RS 80 이상',
+        'vol_explosion': '과거 거래량 폭발', 'vol_dryup': '거래량 수축 발생', 'vol_today': '당일 거래량 강세',
+        'sup_foreign_consec': '외국인 연속 매수', 'sup_inst_net': '기관 순매수', 'sup_foreign_net': '외국인 순매수',
+        'risk_safe': '리스크 5% 이내 안전', 'risk_deduction': '리스크 관리 감점'
+    }
+    desc = maps.get(key, key)
+    sign = "+" if val > 0 else ""
+    return f"{desc} ({sign}{val}점)"
 
 def display_stock_report(row, sector_df=None, rs_3m=None, rs_6m=None):
     st.markdown("---")
     st.subheader(f"📊 {row.get('name', 'N/A')} ({row.get('code', '')}) 상세 분석")
     
-    # RS 정보 표시
+    # RS 정보
     if rs_3m or rs_6m:
         c1, c2 = st.columns(2)
         if rs_3m: c1.metric("3개월 RS", f"{rs_3m}")
@@ -168,18 +184,16 @@ def display_stock_report(row, sector_df=None, rs_3m=None, rs_6m=None):
     
     # 섹터 정보
     stock_sector = row.get('sector', '기타')
-    is_leader = False
     if sector_df is not None and not sector_df.empty:
         leaders = sector_df.head(5)['Sector'].tolist()
         if stock_sector in leaders:
-            is_leader = True
             st.success(f"🏆 **주도 섹터 포함**: {stock_sector}")
         else:
             st.info(f"📌 **업종**: {stock_sector}")
     else:
         st.info(f"📌 **업종**: {stock_sector}")
 
-    # 기본 정보 및 점수 (HTML CSS 중괄호 이스케이프 {{, }})
+    # 기본 정보 Grid
     foreign = int(row.get('foreign_consec_buy', 0))
     inst_net = row.get('inst_net_5d', 0)
     risk_pct = row.get('risk_pct', 0)
@@ -188,20 +202,20 @@ def display_stock_report(row, sector_df=None, rs_3m=None, rs_6m=None):
     <style>
     .info-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }}
     .info-box {{ background: #f0f2f6; padding: 15px; border-radius: 8px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }}
-    .info-label {{ font-size: 12px; color: #666; margin-bottom: 5px; }}
-    .info-value {{ font-size: 16px; font-weight: bold; color: #333; }}
+    .lb {{ font-size: 12px; color: #666; margin-bottom: 5px; }}
+    .val {{ font-size: 16px; font-weight: bold; color: #333; }}
     </style>
     <div class="info-grid">
-        <div class="info-box"><div class="info-label">현재가</div><div class="info-value">{row['close']:,.0f}원</div></div>
-        <div class="info-box"><div class="info-label">총점</div><div class="info-value" style="color: #2e86de;">{row['total_score']:.0f}점</div></div>
-        <div class="info-box"><div class="info-label">셋업</div><div class="info-value">{row.get('setup','-')}</div></div>
-        <div class="info-box"><div class="info-label">리스크 (손절거리)</div><div class="info-value" style="color: {'red' if risk_pct > 10 else 'green'};">{risk_pct:.1f}%</div></div>
-        <div class="info-box"><div class="info-label">외국인 연속매수</div><div class="info-value" style="color: {'red' if foreign > 0 else 'black'};">{foreign}일</div></div>
-        <div class="info-box"><div class="info-label">기관 5일 순매수</div><div class="info-value" style="color: {'red' if inst_net > 0 else 'black'};">{inst_net/1e8:,.1f}억</div></div>
+        <div class="info-box"><div class="lb">현재가</div><div class="val">{row['close']:,.0f}원</div></div>
+        <div class="info-box"><div class="lb">총점</div><div class="val" style="color: #2e86de;">{row['total_score']:.0f}점</div></div>
+        <div class="info-box"><div class="lb">셋업</div><div class="val">{row.get('setup','-')}</div></div>
+        <div class="info-box"><div class="lb">리스크</div><div class="val" style="color: {'red' if risk_pct > 10 else 'green'};">{risk_pct:.1f}%</div></div>
+        <div class="info-box"><div class="lb">외국인 연속</div><div class="val" style="color: {'red' if foreign > 0 else 'black'};">{foreign}일</div></div>
+        <div class="info-box"><div class="lb">기관 5일합</div><div class="val" style="color: {'red' if inst_net > 0 else 'black'};">{inst_net/1e8:,.1f}억</div></div>
     </div>
     """, unsafe_allow_html=True)
 
-    # 셋업 설명 (해당 셋업이 있을 때만 표시)
+    # 셋업 설명
     current_setup = row.get('setup', '-')
     explanations = get_setup_explanations()
     if current_setup != '-':
@@ -210,24 +224,45 @@ def display_stock_report(row, sector_df=None, rs_3m=None, rs_6m=None):
     
     st.markdown("---")
     
-    # 점수 상세
+    # 점수 상세 (5개 항목)
     st.markdown("#### 📈 점수 구성 상세 (100점 만점)")
-    rs_bonus = (5 if rs_3m and rs_3m >= 80 else 0) + (5 if rs_6m and rs_6m >= 80 else 0)
-    
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
-    c1.metric("추세", f"{row.get('trend_score',0):.0f}/25", help="이동평균 정배열 + ADX")
-    c2.metric("위치", f"{row.get('pattern_score',0):.0f}/30", help="Door Knock, Squeeze")
-    c3.metric("거래량", f"{row.get('volume_score',0):.0f}/20", help="폭발, 수축, 당일확인")
-    c4.metric("수급", f"{row.get('supply_score',0):.0f}/15", help="메이저 수급")
-    c5.metric("리스크", f"{row.get('risk_score',10):.0f}/10", help="손절가 거리")
-    c6.metric("RS가산", f"+{rs_bonus}", help="시장대비 강세 보너스")
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("추세 (25)", f"{row.get('trend_score',0):.0f}")
+    c2.metric("위치 (30)", f"{row.get('pattern_score',0):.0f}", help="RS 가산점 포함")
+    c3.metric("거래량 (20)", f"{row.get('volume_score',0):.0f}")
+    c4.metric("수급 (15)", f"{row.get('supply_score',0):.0f}")
+    c5.metric("리스크 (10)", f"{row.get('risk_score',10):.0f}")
 
-    with st.expander("📝 상세 점수 기준 보기"):
-        for k, v in get_score_explanations().items():
-            st.markdown(f"**{v['name']}**: {v['description']}")
-            st.caption(", ".join(v['components']))
+    # 상세 판정 내용 (동적 생성)
+    if 'score_details' in row and isinstance(row['score_details'], dict):
+        with st.expander("📝 상세 점수 획득 내역 보기", expanded=True):
+            details = row['score_details']
+            cols = st.columns(3)
+            # 추세
+            with cols[0]:
+                st.caption("📈 추세 & 위치")
+                for k, v in details.items():
+                    if 'trend' in k or 'pat' in k:
+                        st.markdown(f"- {get_detail_text(k, v)}")
+            # 거래량 & 수급
+            with cols[1]:
+                st.caption("📊 거래량 & 수급")
+                for k, v in details.items():
+                    if 'vol' in k or 'sup' in k:
+                        st.markdown(f"- {get_detail_text(k, v)}")
+            # 리스크
+            with cols[2]:
+                st.caption("🛡️ 리스크")
+                for k, v in details.items():
+                    if 'risk' in k:
+                        st.markdown(f"- {get_detail_text(k, v)}")
+    else:
+        with st.expander("📝 상세 점수 기준 보기"):
+            for k, v in get_score_explanations().items():
+                st.markdown(f"**{v['name']}**: {v['description']}")
+                st.caption(", ".join(v['components']))
             
-    # 매수 전략 추천
+    # 매수 전략 추천 (이전과 동일)
     st.markdown("---")
     st.markdown("#### 🎯 AI 매수 전략 가이드")
     
@@ -237,15 +272,18 @@ def display_stock_report(row, sector_df=None, rs_3m=None, rs_6m=None):
         base_stop = float(row.get('stop', cp*0.92))
         bb_upper = float(row.get('bb_upper', cp*1.05))
         
-        # 전략 계산
-        pullback_price = ma20
-        pullback_stop = max(ma20 * 0.97, base_stop)
-        
-        breakout_price = bb_upper if bb_upper > cp else cp * 1.02
-        breakout_stop = breakout_price * 0.95
+        # 전략 계산 (동일 로직) ...
+        # (코드 중략 없이 내용을 유지해야 함으로, 필요한 변수 및 로직 재사용)
+        pullback_price, pullback_stop = ma20, max(ma20 * 0.97, base_stop)
+        breakout_price, breakout_stop = (bb_upper if bb_upper > cp else cp * 1.02), (bb_upper if bb_upper > cp else cp * 1.02) * 0.95
         
         # 오닐 패턴
         oneil_price, oneil_stop, oneil_msg = 0, 0, ""
+        # ... (오닐 패턴 탐지 로직은 위에서 계산된 것을 사용해야 하나, display 함수 내에서 다시 계산 or 전달받아야 함. 
+        # 여기서는 오닐 패턴이 row에 없으므로 다시 계산하거나 생략. 
+        # 사실 실시간 진단에서는 다시 계산하는게 맞음. 아래 차트 그리기 전에 계산)
+        
+        # 이전 코드의 오닐 로직 복원
         try:
             sub_df = fdr.DataReader(row['code'], datetime.now()-timedelta(days=60), datetime.now())
             if sub_df is not None and len(sub_df) >= 2:
@@ -254,74 +292,48 @@ def display_stock_report(row, sector_df=None, rs_3m=None, rs_6m=None):
                 vol_ma = sub_df['Volume'].rolling(20).mean().iloc[-1]
                 
                 if today['High'] < prev['High'] and today['Low'] > prev['Low']:
-                    oneil_price = today['High']
-                    oneil_msg = "Inside Day 돌파"
+                    oneil_price, oneil_msg = today['High'], "Inside Day 돌파"
                 elif today['Open'] < prev['Low'] and today['Close'] > prev['Low']:
-                    oneil_price = today['Close']
-                    oneil_msg = "Oops Reversal"
+                    oneil_price, oneil_msg = today['Close'], "Oops Reversal"
                 elif today['Volume'] > vol_ma * 2:
-                    oneil_price = today['Close']
-                    oneil_msg = "Pocket Pivot"
+                    oneil_price, oneil_msg = today['Close'], "Pocket Pivot"
                 
-                if oneil_price > 0:
-                    oneil_stop = oneil_price * 0.94
+                if oneil_price > 0: oneil_stop = oneil_price * 0.94
         except: pass
         
-        # 카드 표시
+        # 카드 표시 (동일)
         col1, col2, col3 = st.columns(3)
+        risk1 = (pullback_price - pullback_stop) / pullback_price * 100
+        risk2 = (breakout_price - breakout_stop) / breakout_price * 100
         
-        # 1. 눌림목
         with col1:
-            risk = (pullback_price - pullback_stop) / pullback_price * 100
-            st.markdown(f"""
-            <div style="background-color:rgba(0, 128, 0, 0.1); padding:15px; border-radius:10px; border:1px solid green;">
-                <h5 style="margin:0; color:green;">📉 눌림목 전략</h5>
-                <p style="font-size:13px; margin:5px 0;">20일선 지지 확인 후 매수</p>
-                <b>진입: {pullback_price:,.0f}원</b><br>
-                <span style="color:red">손절: {pullback_stop:,.0f}원 (-{risk:.1f}%)</span>
-            </div>
-            """, unsafe_allow_html=True)
-            
-        # 2. 돌파
+             st.markdown(f"""<div style="background-color:rgba(0,128,0,0.1);padding:15px;border-radius:10px;border:1px solid green;">
+                <h5 style="margin:0;color:green;">📉 눌림목 전략</h5><p style="font-size:13px;margin:5px 0;">20일선 지지</p>
+                <b>진입: {pullback_price:,.0f}원</b><br><span style="color:red">손절: {pullback_stop:,.0f}원 (-{risk1:.1f}%)</span></div>""", unsafe_allow_html=True)
         with col2:
-            risk = (breakout_price - breakout_stop) / breakout_price * 100
-            st.markdown(f"""
-            <div style="background-color:rgba(255, 165, 0, 0.1); padding:15px; border-radius:10px; border:1px solid orange;">
-                <h5 style="margin:0; color:orange;">🚀 돌파 전략</h5>
-                <p style="font-size:13px; margin:5px 0;">BB 상단 강력 돌파 시</p>
-                <b>진입: {breakout_price:,.0f}원</b><br>
-                <span style="color:red">손절: {breakout_stop:,.0f}원 (-{risk:.1f}%)</span>
-            </div>
-            """, unsafe_allow_html=True)
-            
-        # 3. 오닐
+             st.markdown(f"""<div style="background-color:rgba(255,165,0,0.1);padding:15px;border-radius:10px;border:1px solid orange;">
+                <h5 style="margin:0;color:orange;">🚀 돌파 전략</h5><p style="font-size:13px;margin:5px 0;">BB 상단 돌파</p>
+                <b>진입: {breakout_price:,.0f}원</b><br><span style="color:red">손절: {breakout_stop:,.0f}원 (-{risk2:.1f}%)</span></div>""", unsafe_allow_html=True)
         with col3:
             if oneil_price > 0:
-                risk = (oneil_price - oneil_stop) / oneil_price * 100
-                st.markdown(f"""
-                <div style="background-color:rgba(138, 43, 226, 0.1); padding:15px; border-radius:10px; border:1px solid blueviolet;">
-                    <h5 style="margin:0; color:blueviolet;">💎 {oneil_msg}</h5>
-                    <p style="font-size:13px; margin:5px 0;">특수 패턴 포착</p>
-                    <b>진입: {oneil_price:,.0f}원</b><br>
-                    <span style="color:red">손절: {oneil_stop:,.0f}원 (-{risk:.1f}%)</span>
-                </div>
-                """, unsafe_allow_html=True)
+                risk3 = (oneil_price - oneil_stop) / oneil_price * 100
+                st.markdown(f"""<div style="background-color:rgba(138,43,226,0.1);padding:15px;border-radius:10px;border:1px solid blueviolet;">
+                    <h5 style="margin:0;color:blueviolet;">💎 {oneil_msg}</h5><p style="font-size:13px;margin:5px 0;">오닐 패턴 포착</p>
+                    <b>진입: {oneil_price:,.0f}원</b><br><span style="color:red">손절: {oneil_stop:,.0f}원 (-{risk3:.1f}%)</span></div>""", unsafe_allow_html=True)
             else:
-                st.markdown(f"""
-                <div style="background-color:rgba(128, 128, 128, 0.1); padding:15px; border-radius:10px; border:1px solid gray;">
-                    <h5 style="margin:0; color:gray;">💎 오닐 패턴</h5>
-                    <p style="margin:5px 0;">현재 포착된 특수 패턴 없음</p>
-                </div>
-                """, unsafe_allow_html=True)
-                
-    except Exception as e:
-        st.error(f"전략 계산 오류: {e}")
+                st.markdown(f"""<div style="background-color:rgba(128,128,128,0.1);padding:15px;border-radius:10px;border:1px solid gray;">
+                    <h5 style="margin:0;color:gray;">💎 오닐 패턴</h5><p style="margin:5px 0;">현재 포착 패턴 없음</p></div>""", unsafe_allow_html=True)
+
+    except Exception as e: st.error(f"전략 오류: {e}")
 
     # 차트
     st.markdown("---")
-    st.markdown("#### 📉 차트 분석")
+    st.markdown(f"#### 📉 차트 분석 (현재가: {row['close']:,.0f}원)")
     try:
-        chart_df = fdr.DataReader(row['code'], datetime.now()-timedelta(days=180), datetime.now())
+        # 차트 데이터 로드
+        code_str = str(row['code']).zfill(6)
+        chart_df = fdr.DataReader(code_str, datetime.now()-timedelta(days=180), datetime.now()) # use code_str
+        
         if chart_df is not None and len(chart_df) > 0:
             chart_df['MA20'] = chart_df['Close'].rolling(20).mean()
             chart_df['MA60'] = chart_df['Close'].rolling(60).mean()
@@ -331,33 +343,44 @@ def display_stock_report(row, sector_df=None, rs_3m=None, rs_6m=None):
             
             fig = make_subplots(rows=2, cols=1, row_heights=[0.7, 0.3], shared_xaxes=True, vertical_spacing=0.05)
             
-            # 캔들
+            # 메인 차트
             fig.add_trace(go.Candlestick(
                 x=chart_df.index, open=chart_df['Open'], high=chart_df['High'], low=chart_df['Low'], close=chart_df['Close'],
-                name='주가', increasing_line_color='red', decreasing_line_color='blue'
+                name=f'주가 ({row["close"]:,.0f})', increasing_line_color='red', decreasing_line_color='blue'
             ), row=1, col=1)
             
-            # 이평선
             fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['MA20'], line=dict(color='orange', width=1.5), name='20일선'), row=1, col=1)
             fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['MA60'], line=dict(color='purple', width=1.5), name='60일선'), row=1, col=1)
             fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['BB_Upper'], line=dict(color='gray', dash='dot'), name='BB상단'), row=1, col=1)
             
-            # 손절선 (최근 값)
             if 'stop' in row and pd.notna(row['stop']):
                  fig.add_hline(y=row['stop'], line_dash="dash", line_color="red", annotation_text="손절가", row=1, col=1)
 
-            # 거래량
+            # 거래량 차트
             colors = ['red' if c >= o else 'blue' for c, o in zip(chart_df['Close'], chart_df['Open'])]
             fig.add_trace(go.Bar(x=chart_df.index, y=chart_df['Volume'], marker_color=colors, name='거래량'), row=2, col=1)
             
-            # 불기둥 마커
+            # 마커 (불기둥 + 오닐)
             vol_ma = chart_df['Volume'].rolling(20).mean()
             for i in range(1, len(chart_df)):
-                curr, prev = chart_df.iloc[i], chart_df.iloc[i-1]
-                if curr['Volume'] > vol_ma.iloc[i] * 2 and curr['Close'] > curr['Open'] and curr['Close'] > prev['Close'] * 1.05:
-                     fig.add_annotation(x=chart_df.index[i], y=curr['High'], text="🔥", showarrow=False, yshift=10, row=1, col=1)
+                d = chart_df.iloc[i]
+                prev = chart_df.iloc[i-1]
+                # 불기둥
+                if d['Volume'] > vol_ma.iloc[i] * 2 and d['Close'] > d['Open'] and d['Close'] > prev['Close'] * 1.05:
+                     fig.add_annotation(x=chart_df.index[i], y=d['High'], text="🔥", showarrow=False, yshift=10, row=1, col=1)
+            
+            # 오닐 패턴 마커 (오늘 날짜에만 표시)
+            if oneil_msg:
+                fig.add_annotation(x=chart_df.index[-1], y=chart_df['High'].iloc[-1], text=f"💎{oneil_msg}", showarrow=True, arrowhead=1, row=1, col=1)
 
-            fig.update_layout(height=600, margin=dict(t=30, b=30, l=30, r=30), xaxis_rangeslider_visible=False)
+            # 레이아웃 개선: 범례 상단 이동
+            fig.update_layout(
+                height=600, 
+                margin=dict(t=50, b=30, l=30, r=30), 
+                xaxis_rangeslider_visible=False,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                title=f"{row['name']} 차트 분석 (현재가: {row['close']:,.0f})"
+            )
             st.plotly_chart(fig, use_container_width=True)
             
     except Exception as e:
