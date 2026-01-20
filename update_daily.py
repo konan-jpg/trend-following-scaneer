@@ -30,7 +30,7 @@ def get_stock_list(cfg):
             stocks = stocks[stocks["Marcap"] >= cfg["universe"]["min_mktcap_krw"]]
             stocks = stocks.sort_values("Marcap", ascending=False)
         
-        # Sector 정보 확인 및 매핑 (안전하게 체크)
+        # Sector 정보 확인 및 매핑 (KRX-DESC 사용)
         has_valid_sector = False
         if "Sector" in stocks.columns:
             if stocks["Sector"].notna().any():
@@ -38,12 +38,16 @@ def get_stock_list(cfg):
         
         if not has_valid_sector:
             try:
-                # KRX 전체 종목 정보에서 Sector 가져오기
-                krx_full = fdr.StockListing("KRX")
-                if krx_full is not None and "Sector" in krx_full.columns:
-                    sector_map = dict(zip(krx_full["Code"].astype(str), krx_full["Sector"]))
-                    stocks["Sector"] = stocks["Code"].astype(str).map(sector_map)
-                    print(f"[INFO] KRX 섹터 정보 매핑 완료: {stocks['Sector'].notna().sum()}개")
+                # KRX-DESC에서 섹터(Industry) 가져오기
+                krx_desc = fdr.StockListing("KRX-DESC")
+                if krx_desc is not None and "Industry" in krx_desc.columns:
+                    sector_map = dict(zip(krx_desc["Code"].astype(str).str.zfill(6), krx_desc["Industry"]))
+                    stocks["Sector"] = stocks["Code"].astype(str).str.zfill(6).map(sector_map)
+                    print(f"[INFO] KRX-DESC 섹터 정보 매핑 완료: {stocks['Sector'].notna().sum()}개")
+                elif krx_desc is not None and "Sector" in krx_desc.columns:
+                    sector_map = dict(zip(krx_desc["Code"].astype(str).str.zfill(6), krx_desc["Sector"]))
+                    stocks["Sector"] = stocks["Code"].astype(str).str.zfill(6).map(sector_map)
+                    print(f"[INFO] KRX-DESC Sector 매핑 완료: {stocks['Sector'].notna().sum()}개")
             except Exception as e:
                 print(f"[WARN] 섹터 정보 가져오기 실패: {e}")
         
@@ -64,6 +68,23 @@ def get_stock_list(cfg):
         except:
             return pd.DataFrame()
 
+
+def check_index_above_ma20():
+    """코스피 지수가 20일선 위에 있는지 확인"""
+    try:
+        now = get_kst_now()
+        end = now + timedelta(days=1)
+        start = now - timedelta(days=60)
+        kospi = fdr.DataReader("KS11", start, end)  # 코스피 지수
+        if kospi is not None and len(kospi) >= 20:
+            ma20 = kospi["Close"].rolling(20).mean().iloc[-1]
+            close = kospi["Close"].iloc[-1]
+            above = close > ma20
+            print(f"[INDEX] 코스피 {close:.0f} vs MA20 {ma20:.0f} → {'위' if above else '아래'}")
+            return above
+    except Exception as e:
+        print(f"[WARN] 지수 확인 실패: {e}")
+    return True  # 기본값: 20일선 위로 가정 (보수적)
 
 
 def get_investor_data(code, days=10, max_retries=3):
@@ -226,6 +247,9 @@ def main():
     if chunk == 1:
         calculate_sector_rankings(all_top)
     
+    # 지수 20일선 상태 확인 (리스크 점수 계산용)
+    index_above_ma20 = check_index_above_ma20()
+    
     print("\n[STEP1] 기술적 스캔...")
     tech_results = []
     
@@ -248,7 +272,7 @@ def main():
             if float(df["Volume"].tail(5).sum()) == 0: continue
             if float(df["Close"].iloc[-1]) < cfg["universe"]["min_close"]: continue
             sig = calculate_signals(df, cfg)
-            scored = score_stock(df, sig, cfg, mktcap=mktcap)
+            scored = score_stock(df, sig, cfg, mktcap=mktcap, index_above_ma20=index_above_ma20)
             if scored is None: continue
             # score_details를 JSON 문자열로 변환
             if 'score_details' in scored and isinstance(scored['score_details'], dict):
