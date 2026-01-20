@@ -329,28 +329,32 @@ def display_stock_report(row, sector_df=None, rs_3m=None, rs_6m=None):
                 if oneil_price > 0: oneil_stop = oneil_price * 0.94
         except: pass
         
-        # 카드 표시 (동일)
+        # 카드 표시 - 순위 포함
         col1, col2, col3 = st.columns(3)
         risk1 = (pullback_price - pullback_stop) / pullback_price * 100
         risk2 = (breakout_price - breakout_stop) / breakout_price * 100
         
         with col1:
              st.markdown(f"""<div style="background-color:rgba(0,128,0,0.1);padding:15px;border-radius:10px;border:1px solid green;">
-                <h5 style="margin:0;color:green;">📉 눌림목 전략</h5><p style="font-size:13px;margin:5px 0;">20일선 지지</p>
+                <span style="background:green;color:white;padding:2px 8px;border-radius:10px;font-size:11px;">1순위</span>
+                <h5 style="margin:5px 0 0;color:green;">📉 눌림목 전략</h5><p style="font-size:13px;margin:5px 0;">20일선 지지</p>
                 <b>진입: {pullback_price:,.0f}원</b><br><span style="color:red">손절: {pullback_stop:,.0f}원 (-{risk1:.1f}%)</span></div>""", unsafe_allow_html=True)
         with col2:
              st.markdown(f"""<div style="background-color:rgba(255,165,0,0.1);padding:15px;border-radius:10px;border:1px solid orange;">
-                <h5 style="margin:0;color:orange;">🚀 돌파 전략</h5><p style="font-size:13px;margin:5px 0;">BB 상단 돌파</p>
+                <span style="background:orange;color:white;padding:2px 8px;border-radius:10px;font-size:11px;">2순위</span>
+                <h5 style="margin:5px 0 0;color:orange;">🚀 돌파 전략</h5><p style="font-size:13px;margin:5px 0;">BB 상단 돌파</p>
                 <b>진입: {breakout_price:,.0f}원</b><br><span style="color:red">손절: {breakout_stop:,.0f}원 (-{risk2:.1f}%)</span></div>""", unsafe_allow_html=True)
         with col3:
             if oneil_price > 0:
                 risk3 = (oneil_price - oneil_stop) / oneil_price * 100
                 st.markdown(f"""<div style="background-color:rgba(138,43,226,0.1);padding:15px;border-radius:10px;border:1px solid blueviolet;">
-                    <h5 style="margin:0;color:blueviolet;">💎 {oneil_msg}</h5><p style="font-size:13px;margin:5px 0;">오닐 패턴 포착</p>
+                    <span style="background:blueviolet;color:white;padding:2px 8px;border-radius:10px;font-size:11px;">3순위</span>
+                    <h5 style="margin:5px 0 0;color:blueviolet;">💎 {oneil_msg}</h5><p style="font-size:13px;margin:5px 0;">오닐 패턴 포착</p>
                     <b>진입: {oneil_price:,.0f}원</b><br><span style="color:red">손절: {oneil_stop:,.0f}원 (-{risk3:.1f}%)</span></div>""", unsafe_allow_html=True)
             else:
                 st.markdown(f"""<div style="background-color:rgba(128,128,128,0.1);padding:15px;border-radius:10px;border:1px solid gray;">
-                    <h5 style="margin:0;color:gray;">💎 오닐 패턴</h5><p style="margin:5px 0;">현재 포착 패턴 없음</p></div>""", unsafe_allow_html=True)
+                    <span style="background:gray;color:white;padding:2px 8px;border-radius:10px;font-size:11px;">3순위</span>
+                    <h5 style="margin:5px 0 0;color:gray;">💎 오닐 패턴</h5><p style="margin:5px 0;">현재 포착 패턴 없음</p></div>""", unsafe_allow_html=True)
 
     except Exception as e: st.error(f"전략 오류: {e}")
 
