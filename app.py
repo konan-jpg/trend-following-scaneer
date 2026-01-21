@@ -498,8 +498,8 @@ def display_stock_report(row, sector_df=None, rs_3m=None, rs_6m=None):
         if chart_df is not None and len(chart_df) > 0:
             chart_df['MA20'] = chart_df['Close'].rolling(20).mean()
             chart_df['MA60'] = chart_df['Close'].rolling(60).mean()
-            mid = chart_df['Close'].rolling(20).mean()
-            std = chart_df['Close'].rolling(20).std()
+            mid = chart_df['Close'].rolling(60).mean()
+            std = chart_df['Close'].rolling(60).std()
             chart_df['BB_Upper'] = mid + 2*std
             
             fig = make_subplots(rows=2, cols=1, row_heights=[0.7, 0.3], shared_xaxes=True, vertical_spacing=0.05)
@@ -531,8 +531,12 @@ def display_stock_report(row, sector_df=None, rs_3m=None, rs_6m=None):
                      fig.add_annotation(x=chart_df.index[i], y=d['High'], text="🔥", showarrow=False, yshift=10, row=1, col=1)
             
             # 오닐 패턴 마커 (오늘 날짜에만 표시)
-            if oneil_msg:
-                fig.add_annotation(x=chart_df.index[-1], y=chart_df['High'].iloc[-1], text=f"💎{oneil_msg}", showarrow=True, arrowhead=1, row=1, col=1)
+            # oneil_msg가 정의되어 있을 때만 표시 (CSV 사용 시는 없을 수 있음)
+            try:
+                if 'oneil_msg' in dir() and oneil_msg:
+                    fig.add_annotation(x=chart_df.index[-1], y=chart_df['High'].iloc[-1], text=f"💎{oneil_msg}", showarrow=True, arrowhead=1, row=1, col=1)
+            except:
+                pass
 
             # 레이아웃 개선: 범례 상단 이동
             fig.update_layout(
