@@ -294,3 +294,149 @@ def score_stock(df, sig, cfg, mktcap=None, investor_data=None, rs_3m=0, rs_6m=0,
         "door_knock": door_knock, "squeeze": squeeze,
         "score_details": details
     }
+
+
+def calculate_strategies(df, sig, cfg):
+    """
+    3개 전략별 진입가/손절가/리스크 계산 및 우선순위 결정
+    기존 점수체계와 별개로 작동
+    """
+    if df is None or sig is None or len(df) < 20:
+        return None
+    
+    last = df.index[-1]
+    close = float(df.loc[last, "Close"])
+    
+    def safe_get(series, idx, default=0):
+        try:
+            val = series.loc[idx]
+            return float(val) if pd.notna(val) else default
+        except: return default
+    
+    # 기본값 추출
+    ma20 = safe_get(sig["ma20"], last, close)
+    ma10 = df["Close"].rolling(10).mean().iloc[-1] if len(df) >= 10 else close
+    bb_upper = safe_get(sig["upper"], last, close * 1.05)
+    climax_low = safe_get(sig["climax_low"], last, 0)
+    
+    # ATR(20) 계산
+    tr = pd.concat([
+        df['High'] - df['Low'],
+        (df['High'] - df['Close'].shift(1)).abs(),
+        (df['Low'] - df['Close'].shift(1)).abs()
+    ], axis=1).max(axis=1)
+    atr20 = tr.rolling(20).mean().iloc[-1] if len(df) >= 20 else close * 0.02
+    
+    # 최근 10일 최저가 (climax_low 없을 때 사용)
+    swing_low = df["Low"].tail(10).min()
+    base_stop = climax_low if climax_low > 0 else swing_low
+    
+    strategies = []
+    
+    # ═══════════════════════════════════════════════════
+    # 전략 1: Pullback (눌림목)
+    # Entry: 20MA, Stop: max(climax_low, entry - 1.2*ATR)
+    # ═══════════════════════════════════════════════════
+    pullback_entry = ma20
+    pullback_stop = max(base_stop, pullback_entry - 1.2 * atr20)
+    if pullback_stop >= pullback_entry:
+        pullback_stop = pullback_entry * 0.95
+    pullback_risk = (pullback_entry - pullback_stop) / pullback_entry * 100 if pullback_entry > 0 else 99
+    
+    # 눌림목 적합성 체크 (과거 폭발 + 현재가 > 20MA 또는 근접)
+    is_pullback_candidate = (close >= ma20 * 0.97) and (close <= ma20 * 1.05) and (climax_low > 0)
+    
+    strategies.append({
+        'type': 'pullback', 'name': '눌림목', 
+        'entry': pullback_entry, 'stop': pullback_stop, 
+        'risk': pullback_risk, 'candidate': is_pullback_candidate
+    })
+    
+    # ═══════════════════════════════════════════════════
+    # 전략 2: Breakout (돌파)
+    # Entry: BB60 상단, Stop: entry - 1.5*ATR
+    # ═══════════════════════════════════════════════════
+    breakout_entry = bb_upper if bb_upper > close else close * 1.02
+    breakout_stop = breakout_entry - 1.5 * atr20
+    if breakout_stop >= breakout_entry:
+        breakout_stop = breakout_entry * 0.95
+    breakout_risk = (breakout_entry - breakout_stop) / breakout_entry * 100 if breakout_entry > 0 else 99
+    
+    # 돌파 적합성 체크 (squeeze + door_knock)
+    door_knock = safe_get(sig.get("door_knock", pd.Series()), last, False)
+    squeeze = safe_get(sig.get("squeeze", pd.Series()), last, False)
+    is_breakout_candidate = bool(door_knock) or bool(squeeze)
+    
+    strategies.append({
+        'type': 'breakout', 'name': '돌파',
+        'entry': breakout_entry, 'stop': breakout_stop,
+        'risk': breakout_risk, 'candidate': is_breakout_candidate
+    })
+    
+    # ═══════════════════════════════════════════════════
+    # 전략 3: O'Neil (Pocket Pivot)
+    # Entry: 당일 종가, Stop: max(10MA, entry - ATR)
+    # ═══════════════════════════════════════════════════
+    oneil_entry = close
+    oneil_stop = max(ma10, close - atr20)
+    if oneil_stop >= oneil_entry:
+        oneil_stop = oneil_entry * 0.94
+    oneil_risk = (oneil_entry - oneil_stop) / oneil_entry * 100 if oneil_entry > 0 else 99
+    
+    # 오닐 패턴 적합성 체크
+    is_oneil_candidate = False
+    oneil_pattern = ""
+    if len(df) >= 2:
+        today = df.iloc[-1]
+        prev = df.iloc[-2]
+        vol_ma = df['Volume'].rolling(20).mean().iloc[-1] if len(df) >= 20 else df['Volume'].mean()
+        
+        # Inside Day
+        if today['High'] < prev['High'] and today['Low'] > prev['Low']:
+            is_oneil_candidate = True
+            oneil_pattern = "Inside Day"
+        # Oops Reversal
+        elif today['Open'] < prev['Low'] and today['Close'] > prev['Low']:
+            is_oneil_candidate = True
+            oneil_pattern = "Oops Reversal"
+        # Pocket Pivot
+        elif today['Volume'] > vol_ma * 2 and today['Close'] > today['Open']:
+            is_oneil_candidate = True
+            oneil_pattern = "Pocket Pivot"
+    
+    strategies.append({
+        'type': 'oneil', 'name': oneil_pattern if oneil_pattern else '오닐',
+        'entry': oneil_entry, 'stop': oneil_stop,
+        'risk': oneil_risk, 'candidate': is_oneil_candidate
+    })
+    
+    # ═══════════════════════════════════════════════════
+    # 우선순위 결정: candidate가 True인 것 우선, 그 중 리스크 낮은 순
+    # ═══════════════════════════════════════════════════
+    strategies.sort(key=lambda x: (not x['candidate'], x['risk']))
+    
+    # 순위 부여
+    for i, s in enumerate(strategies):
+        s['rank'] = i + 1
+    
+    return {
+        'strategies': strategies,
+        # 1순위 전략 정보 (CSV 저장용)
+        'strat1_type': strategies[0]['type'],
+        'strat1_name': strategies[0]['name'],
+        'strat1_entry': strategies[0]['entry'],
+        'strat1_stop': strategies[0]['stop'],
+        'strat1_risk': strategies[0]['risk'],
+        # 2순위
+        'strat2_type': strategies[1]['type'],
+        'strat2_name': strategies[1]['name'],
+        'strat2_entry': strategies[1]['entry'],
+        'strat2_stop': strategies[1]['stop'],
+        'strat2_risk': strategies[1]['risk'],
+        # 3순위
+        'strat3_type': strategies[2]['type'],
+        'strat3_name': strategies[2]['name'],
+        'strat3_entry': strategies[2]['entry'],
+        'strat3_stop': strategies[2]['stop'],
+        'strat3_risk': strategies[2]['risk'],
+    }
