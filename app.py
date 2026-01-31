@@ -489,17 +489,15 @@ def display_stock_report(row, sector_df=None, rs_3m=None, rs_6m=None):
 
     # 차트
     st.markdown("---")
-    # 등락률 계산 (전일 종가 대비)
+    # 등락률 계산 (전일 종가 대비) - 차트 제목에서만 표시
     change_pct = row.get('change_pct', 0)
     if change_pct == 0:
-        # row에 없으면 계산 시도
         prev_close = row.get('prev_close', 0)
         if prev_close > 0:
             change_pct = (row['close'] - prev_close) / prev_close * 100
     
     change_color = 'red' if change_pct >= 0 else 'blue'
     change_sign = '+' if change_pct >= 0 else ''
-    st.markdown(f"#### 📉 차트 분석 (현재가: {row['close']:,.0f}원, <span style='color:{change_color}'>{change_sign}{change_pct:.2f}%</span>)", unsafe_allow_html=True)
     try:
         # 차트 데이터 로드
         code_str = str(row['code']).zfill(6)
